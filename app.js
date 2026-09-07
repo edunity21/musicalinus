@@ -10,7 +10,7 @@
  *  서버가 하나로 합쳐 주기 때문에 서로의 글이 지워지지 않습니다.
  * ==========================================================================*/
 
-const APP_VERSION = 'student v1.1.0 (2026-09-07) 파일제출';
+const APP_VERSION = 'student v1.2.0 (2026-09-07) 5인모둠';
 
 /* ---------------------------------------------------------------------------
  *  0. 지금 상태
@@ -118,7 +118,9 @@ function openJoin() {
   }));
 
   $('#joinJobs').innerHTML = JOBS.map(j =>
-    '<button type="button" data-j="' + j.key + '" aria-pressed="false">' + j.icon + ' ' + esc(j.name) + '</button>').join('');
+    '<button type="button" data-j="' + j.key + '" aria-pressed="false"' +
+    (j.optional ? ' class="extra"' : '') + '>' + j.icon + ' ' + esc(j.name) +
+    (j.optional ? ' <span class="dim">여섯 번째</span>' : '') + '</button>').join('');
   $$("#joinJobs button").forEach(b => b.addEventListener('click', () => {
     JOIN.job = b.dataset.j;
     $$("#joinJobs button").forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
@@ -143,14 +145,31 @@ async function loadMates() {
   $('#joinMates').innerHTML = taken.length
     ? '<span class="dim" style="width:100%">이미 자리를 잡은 모둠원</span>' + taken.map(m => mateChip(m)).join('')
     : '<span class="dim">아직 아무도 들어오지 않았습니다. 첫 번째입니다.</span>';
+  /* 기본 다섯 자리가 모두 찬 뒤에야 '공동 대본'(여섯 번째)이 열립니다.
+     학급이 30명이면 6모둠 × 5명이라 여섯 번째 자리는 끝까지 잠겨 있습니다. */
+  const core = JOBS.filter(j => !j.optional).map(j => j.key);
+  const coreFull = core.every(k => taken.some(m => m.job === k && m.sid !== S.sid));
+
   $$("#joinJobs button").forEach(b => {
+    const j = jobOf(b.dataset.j);
     const t = taken.some(m => m.job === b.dataset.j && m.sid !== S.sid);
-    b.disabled = t; b.style.opacity = t ? .35 : 1;
+    const notYet = !!(j && j.optional) && !coreFull;
+    b.disabled = t || notYet;
+    b.classList.toggle('taken', t);
+    b.classList.toggle('notyet', notYet && !t);
+    b.title = t ? '이미 다른 모둠원이 맡았습니다'
+            : notYet ? '다섯 자리가 다 차면 열립니다' : '';
   });
   $$('#joinRoles button').forEach(b => {
     const t = taken.some(m => m.role === b.dataset.r && m.sid !== S.sid);
-    b.disabled = t; b.style.opacity = t ? .35 : 1;
+    b.disabled = t;
+    b.classList.toggle('taken', t);
   });
+
+  const left = core.filter(k => !taken.some(m => m.job === k && m.sid !== S.sid)).length;
+  $('#joinSeats').textContent = taken.length >= MEMBERS_PER_GROUP
+    ? MEMBERS_PER_GROUP + '자리가 다 찼습니다. 여섯 번째 자리(공동 대본)로만 들어갈 수 있습니다.'
+    : '이 모둠에 남은 자리 ' + left + '개 · 정원 ' + MEMBERS_PER_GROUP + '명';
 }
 
 async function doJoin() {

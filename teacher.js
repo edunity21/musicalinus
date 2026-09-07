@@ -6,7 +6,7 @@
 const LESSON_MINUTES = 50;   // [수업 시작] 이 여는 시간
 const SUBMIT_MINUTES = 25;   // [제출 열기] 가 여는 시간
 
-const TEACHER_VERSION = 'teacher v1.1.0 (2026-09-07) 파일제출';
+const TEACHER_VERSION = 'teacher v1.2.0 (2026-09-07) 5인모둠';
 
 const T = {
   cfg: [], cls: '', status: null, roster: [], pending: [], edit: null,
@@ -270,6 +270,9 @@ function paintStatus() {
       '<div class="progress" style="margin:10px 0">' +
         '<div class="bar"><div class="fill" style="width:' + bar + '%"></div></div>' +
         '<div class="txt">' + bar + '%</div></div>' +
+      '<p class="dim" style="font-size:.86rem; margin:0 0 6px">자리 ' + g.members.length + ' / ' +
+        (typeof MEMBERS_PER_GROUP === 'number' ? MEMBERS_PER_GROUP : 5) + '명' +
+        (g.members.length < 5 ? ' — 아직 빈 자리가 있습니다' : '') + '</p>' +
       '<div class="mates" style="margin-bottom:10px">' + (g.members.length
         ? g.members.map(m => '<span class="mate" data-sid="' + esc(m.sid) + '" style="cursor:pointer">' +
             '<span class="sw" style="background:' + ((castOf(m.role) || {}).color || '#666') + '"></span>' +

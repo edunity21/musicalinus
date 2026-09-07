@@ -1074,7 +1074,10 @@ body.exam .nowbar { border-top-color: #A3122A; }
 .chooser button[aria-pressed="true"] {
   background: var(--accent); color: var(--accent-in); border-color: transparent;
 }
-.chooser button[disabled] { opacity: .35; cursor: not-allowed; text-decoration: line-through; }
+.chooser button[disabled] { opacity: .4; cursor: not-allowed; }
+.chooser button.taken     { text-decoration: line-through; }
+.chooser button.notyet    { border-style: dashed; }
+.chooser button .dim      { font-weight: 400; font-size: .78rem; }
 
 /* 파일 올리기 ------------------------------------------------------------*/
 .uploadbox {
