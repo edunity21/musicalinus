@@ -6,7 +6,7 @@
 const LESSON_MINUTES = 50;   // [수업 시작] 이 여는 시간
 const SUBMIT_MINUTES = 25;   // [제출 열기] 가 여는 시간
 
-const TEACHER_VERSION = 'teacher v1.0.0 (2026-09-07)';
+const TEACHER_VERSION = 'teacher v1.1.0 (2026-09-07) 파일제출';
 
 const T = {
   cfg: [], cls: '', status: null, roster: [], pending: [], edit: null,
@@ -245,11 +245,14 @@ function paintStatus() {
   const active = r.groups.reduce((n, g) => n + g.active, 0);
   const says = r.groups.reduce((n, g) => n + g.says, 0);
 
+  const withVid = r.groups.filter(g => (g.videos || []).length).length;
+  const fileN = r.groups.reduce((n, g) => n + (g.files || []).length, 0);
+
   $('#statusKpis').innerHTML =
     kpi('제출한 모둠', done + ' / ' + r.groups.length, done === r.groups.length ? 'hi' : '') +
-    kpi('자리 잡은 학생', people, '') +
-    kpi('한 줄이라도 쓴 학생', active, active < people ? 'bad' : 'hi') +
-    kpi('학급 전체 대사', says + '줄', '');
+    kpi('한 줄이라도 쓴 학생', active + ' / ' + people, active < people ? 'bad' : 'hi') +
+    kpi('올린 음원·그림', fileN + '개', '') +
+    kpi('영상 낸 모둠', withVid + ' / ' + r.groups.length, withVid === r.groups.length ? 'hi' : '');
 
   $('#groupCards').innerHTML = r.groups.map(g => {
     const a = actOf(g.actNo) || {};
@@ -275,6 +278,7 @@ function paintStatus() {
         : '<span class="dim">아직 아무도 들어오지 않았습니다</span>') + '</div>' +
       '<p class="dim" style="font-size:.88rem">지문 ' + g.dirs + '줄 · 대사 ' + g.says + '줄 · 가사 ' + g.lyrics +
         '줄 · 쓴 사람 ' + g.active + '/' + g.members.length + ' · ♪ ' + esc(g.numberTitle || '(제목 없음)') + '</p>' +
+      filesHtml(g) +
       (!g.members.length
         ? '<p class="dim" style="font-size:.86rem">아직 시작하지 않았습니다</p>'
         : (g.missing && g.missing.length
@@ -306,6 +310,28 @@ function paintStatus() {
 
 function kpi(k, v, cls) {
   return '<div class="kpi ' + (cls || '') + '"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div></div>';
+}
+
+/** 모둠이 올린 음원·그림과, 폼으로 낸 영상 */
+function filesHtml(g) {
+  const files = g.files || [], vids = g.videos || [];
+  if (!files.length && !vids.length) {
+    return '<p class="dim" style="font-size:.86rem">올린 파일 없음 · 영상 없음</p>';
+  }
+  let h = '<div style="margin:6px 0 4px">';
+  files.forEach(f => {
+    const ic = f.kind === 'audio' ? '♪' : f.kind === 'image' ? '▣' : '▤';
+    h += '<a class="tagpill" style="margin:0 6px 6px 0; text-decoration:none" href="' +
+         esc(f.url) + '" target="_blank" rel="noopener">' + ic + ' ' + esc(f.name) +
+         ' <span class="dim">' + Math.max(1, Math.round((f.size || 0) / 1024)) + 'KB</span></a>';
+  });
+  vids.forEach(v => {
+    h += '<a class="tagpill on" style="margin:0 6px 6px 0; text-decoration:none" href="' +
+         esc(v.link || '#') + '" target="_blank" rel="noopener">▶ 영상 · ' +
+         esc(v.name || v.sid || '') + '</a>';
+  });
+  h += '</div>';
+  return h;
 }
 
 /* ---- 자리 고치기 모달 --------------------------------------------------*/

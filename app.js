@@ -4,20 +4,20 @@
  *
  *  큰 흐름
  *    구글 로그인 → 학번·비밀번호 확인 → (모둠·역할이 없으면) 자리 고르기 →
- *    본 화면: 뼈대 · 막 설계 · 장면 대본 · 넘버 · 미리보기/제출
+ *    본 화면: 뼈대 · 막 설계 · 장면 대본 · 넘버 · 파일 · 미리보기/제출
  *
  *  저장은 '내가 담당한 칸만' 서버에 보냅니다. 모둠원이 각자 보낸 것을
  *  서버가 하나로 합쳐 주기 때문에 서로의 글이 지워지지 않습니다.
  * ==========================================================================*/
 
-const APP_VERSION = 'student v1.0.0 (2026-09-07)';
+const APP_VERSION = 'student v1.1.0 (2026-09-07) 파일제출';
 
 /* ---------------------------------------------------------------------------
  *  0. 지금 상태
  * -------------------------------------------------------------------------*/
 const S = {
   sid: '', name: '', cls: '', group: 0, job: '', role: '',
-  work: null, members: [], state: null,
+  work: null, members: [], state: null, videos: [],
   dirty: {}, lineOps: [], lyricOps: [],
   saving: false, lastSent: '', renderedRev: -1, tab: 'story',
   pollTimer: null, syncTimer: null, saveTimer: null
@@ -49,6 +49,7 @@ window.addEventListener('DOMContentLoaded', function () {
   });
   $('#btnJoin').addEventListener('click', doJoin);
   bindApp();
+  bindFiles();
 });
 
 async function onLogin(payload) {
@@ -276,6 +277,7 @@ async function sync(loud) {
   });
   if (!res.ok) { if (loud) toast(errText(res), 'bad'); setSave('연결 안 됨'); return; }
   S.state = res.state; S.members = res.members || [];
+  S.videos = res.videos || [];
   mergeWork(res.work);
   paintStatus();
   paintAll();
@@ -387,6 +389,8 @@ function paintAll() {
   paintLyrics();
   paintPrompt();
   paintArrange();
+  paintFiles();
+  paintVideos();
   applyLocks();          /* 잠금은 다시 그린 뒤 마지막에 한 번 */
   paintProgress();
   $('#nowName').textContent = '제' + (S.work.actNo || S.group) + '막 · ' + (S.work.actTitle || '(제목 없음)');
@@ -412,7 +416,7 @@ function paintRoleBars() {
     '<span class="tagpill"><span class="sw" style="background:' + (c ? c.color : '#666') + '"></span>' +
       esc(castName(S.role)) + ' 역</span>' +
     '<span class="dim" style="font-size:.84rem">' + esc(jobOf(S.job) ? jobOf(S.job).duty : '') + '</span>';
-  ['#roleBar', '#roleBar2', '#roleBar3', '#roleBar4'].forEach(sel => { const el = $(sel); if (el) el.innerHTML = html; });
+  ['#roleBar', '#roleBar2', '#roleBar3', '#roleBar4', '#roleBar5'].forEach(sel => { const el = $(sel); if (el) el.innerHTML = html; });
   const mates = matesHtml();
   const el = $('#sceneMates'); if (el) el.innerHTML = mates;
 }
@@ -898,4 +902,215 @@ function renderStory() {
       '<div class="ax" style="color:var(--muted)">묻는 것 — ' + esc(a.ask) + '</div>' +
     '</div>';
   }).join('');
+}
+
+/* ===========================================================================
+ *  7. 파일 탭 — 음원·그림 올리기 / 동영상은 구글 폼으로
+ * =========================================================================*/
+
+const UP = { busy: false, queue: [], open: {} };
+
+function bindFiles() {
+  const pick = $('#btnPickFile'), input = $('#fileInput'), zone = $('#dropZone');
+  if (!pick) return;
+  $('#upMax').textContent = MAX_UPLOAD_MB;
+  $('#upCount').textContent = MAX_FILES_PER_GROUP;
+  input.setAttribute('accept', ALLOW_UPLOAD);
+
+  pick.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => { queueFiles(input.files); input.value = ''; });
+
+  ['dragenter', 'dragover'].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.add('over');
+  }));
+  ['dragleave', 'drop'].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.remove('over');
+  }));
+  zone.addEventListener('drop', e => {
+    if (e.dataTransfer && e.dataTransfer.files) queueFiles(e.dataTransfer.files);
+  });
+
+  $('#btnVideoForm').addEventListener('click', openVideoForm);
+  $('#btnVideoRefresh').addEventListener('click', () => sync(true));
+}
+
+/* ---- 올리기 -----------------------------------------------------------*/
+function queueFiles(list) {
+  const files = Array.from(list || []);
+  if (!files.length) return;
+  const have = (S.work.files || []).length;
+  if (have + files.length > MAX_FILES_PER_GROUP) {
+    toast('모둠당 ' + MAX_FILES_PER_GROUP + '개까지입니다. 지금 ' + have + '개 있습니다.', 'bad', 4200);
+    return;
+  }
+  files.forEach(f => UP.queue.push(f));
+  runQueue();
+}
+
+async function runQueue() {
+  if (UP.busy) return;
+  const f = UP.queue.shift();
+  if (!f) { $('#upProgress').classList.add('hidden'); return; }
+
+  if (f.size > MAX_UPLOAD_MB * 1024 * 1024) {
+    toast('"' + f.name + '" 은 ' + Math.round(f.size / 1024 / 1024) + 'MB 라 너무 큽니다. ' +
+          MAX_UPLOAD_MB + 'MB까지만 올릴 수 있습니다. 동영상은 아래 [영상 내기]로 내세요.', 'bad', 6000);
+    runQueue(); return;
+  }
+  const okExt = ALLOW_UPLOAD.split(',').some(e => f.name.toLowerCase().endsWith(e.trim()));
+  if (!okExt) {
+    toast('"' + f.name + '" 은 올릴 수 없는 종류입니다. (' + ALLOW_UPLOAD + ')', 'bad', 5000);
+    runQueue(); return;
+  }
+
+  UP.busy = true;
+  $('#upProgress').classList.remove('hidden');
+  $('#upTxt').textContent = f.name + ' 읽는 중…';
+  $('#upFill').style.width = '10%';
+
+  let b64;
+  try { b64 = await readBase64(f); }
+  catch (e) { toast('파일을 읽지 못했습니다', 'bad'); UP.busy = false; runQueue(); return; }
+
+  $('#upTxt').textContent = f.name + ' 올리는 중…';
+  $('#upFill').style.width = '55%';
+
+  const res = await apiPost('upload', {
+    idToken: Auth.idToken, sid: S.sid,
+    name: f.name, mime: f.type || guessMime(f.name), data: b64
+  }, 120000);
+
+  UP.busy = false;
+  $('#upFill').style.width = '100%';
+
+  if (!res.ok) {
+    const msg = res.error === 'TOO_BIG' ? '파일이 너무 큽니다 (' + res.message + 'MB)'
+              : res.error === 'BAD_TYPE' ? '올릴 수 없는 종류입니다'
+              : res.error === 'TOO_MANY' ? '파일이 너무 많습니다'
+              : res.error === 'DRIVE_FAIL' ? '드라이브에 넣지 못했습니다. 선생님께 알려 주세요.'
+              : errText(res);
+    toast(msg, 'bad', 5000);
+  } else {
+    mergeWork(res.work);
+    S.members = res.members || S.members;
+    paintAll();
+    toast(f.name + ' 올렸습니다', 'ok');
+  }
+  setTimeout(() => { $('#upFill').style.width = '0'; runQueue(); }, 300);
+}
+
+function readBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = String(r.result);
+      const i = s.indexOf(',');
+      resolve(i >= 0 ? s.slice(i + 1) : s);
+    };
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+function guessMime(name) {
+  const n = name.toLowerCase();
+  if (n.endsWith('.mp3')) return 'audio/mpeg';
+  if (n.endsWith('.m4a')) return 'audio/x-m4a';
+  if (n.endsWith('.wav')) return 'audio/wav';
+  if (n.endsWith('.ogg')) return 'audio/ogg';
+  if (n.endsWith('.png')) return 'image/png';
+  if (n.endsWith('.jpg') || n.endsWith('.jpeg')) return 'image/jpeg';
+  if (n.endsWith('.webp')) return 'image/webp';
+  if (n.endsWith('.pdf')) return 'application/pdf';
+  return '';
+}
+
+/* ---- 목록 -------------------------------------------------------------*/
+function paintFiles() {
+  const box = $('#fileList'); if (!box) return;
+  const list = (S.work && S.work.files) || [];
+  $('#dotFiles').textContent = String(list.length);
+
+  box.innerHTML = list.length ? list.map(f => {
+    const mine = f.by === S.sid || S.job === 'stage';
+    const icon = f.kind === 'audio' ? '♪' : f.kind === 'image' ? '▣' : '▤';
+    const opened = !!UP.open[f.id];
+    return '<div class="fileitem" data-fid="' + esc(f.id) + '">' +
+      '<div class="top">' +
+        '<div class="ic">' + icon + '</div>' +
+        '<div class="grow">' +
+          '<div class="nm">' + esc(f.name) + '</div>' +
+          '<div class="sub">' + esc(f.byName || '') + ' · ' +
+            Math.max(1, Math.round((f.size || 0) / 1024)) + 'KB · ' + esc(f.at || '') + '</div>' +
+        '</div>' +
+        '<div class="acts no-print">' +
+          (f.kind === 'doc' ? '' :
+            '<button class="btn sm" data-op="play">' + (opened ? '접기' : (f.kind === 'audio' ? '들어보기' : '보기')) + '</button>') +
+          '<a class="btn sm ghost" href="' + esc(f.url) + '" target="_blank" rel="noopener">새 창</a>' +
+          (mine ? '<button class="btn sm danger" data-op="del">지우기</button>' : '') +
+        '</div>' +
+      '</div>' +
+      (opened ? '<iframe class="' + f.kind + '" src="' + esc(f.preview) + '"></iframe>' : '') +
+    '</div>';
+  }).join('') : '<p class="dim">아직 올린 파일이 없습니다.</p>';
+
+  $$('#fileList [data-op]').forEach(b => b.addEventListener('click', () => {
+    const fid = b.closest('[data-fid]').dataset.fid;
+    if (b.dataset.op === 'play') { UP.open[fid] = !UP.open[fid]; paintFiles(); }
+    else deleteFile(fid);
+  }));
+}
+
+async function deleteFile(fid) {
+  const f = (S.work.files || []).find(x => x.id === fid);
+  if (!f) return;
+  if (!confirm('"' + f.name + '" 을 지울까요?\n드라이브에서도 휴지통으로 갑니다.')) return;
+  const res = await apiPost('deleteFile', { idToken: Auth.idToken, sid: S.sid, fileId: fid });
+  if (!res.ok) {
+    toast(res.error === 'NOT_OWNER' ? '올린 사람이나 발표 리더만 지울 수 있습니다' : errText(res), 'bad', 4000);
+    return;
+  }
+  mergeWork(res.work);
+  paintAll();
+  toast('지웠습니다', 'ok');
+}
+
+/* ---- 동영상 폼 ---------------------------------------------------------*/
+function videoFormUrl() {
+  if (!VIDEO_FORM || !VIDEO_FORM.url) return '';
+  const u = VIDEO_FORM.url.replace(/\?.*$/, '');
+  const p = [];
+  const add = (k, v) => { if (k && v) p.push(encodeURIComponent(k) + '=' + encodeURIComponent(v)); };
+  add(VIDEO_FORM.entryClass, S.cls);
+  add(VIDEO_FORM.entryGroup, S.group + '모둠');
+  add(VIDEO_FORM.entrySid, S.sid);
+  add(VIDEO_FORM.entryName, S.name);
+  return u + (p.length ? '?usp=pp_url&' + p.join('&') : '');
+}
+
+function openVideoForm() {
+  const url = videoFormUrl();
+  if (!url) { toast('영상 제출용 폼이 아직 연결되지 않았습니다', 'warn', 4000); return; }
+  const w = window.open(url, '_blank', 'noopener');
+  if (!w) toast('브라우저가 새 창을 막았습니다. 주소창 오른쪽 아이콘에서 허용해 주세요.', 'bad', 6000);
+  else toast('새 창에서 영상을 내고 오세요. 돌아와서 [낸 것 확인하기]를 누르면 됩니다.', 'ok', 5000);
+}
+
+function paintVideos() {
+  const has = !!(VIDEO_FORM && VIDEO_FORM.url);
+  const card = $('#videoCard'), off = $('#videoOff');
+  if (card) card.classList.toggle('hidden', !has);
+  if (off) off.classList.toggle('hidden', has);
+  if (!has) return;
+
+  const list = S.videos || [];
+  $('#videoList').innerHTML = list.length
+    ? '<p class="dim" style="font-size:.85rem">우리 모둠이 낸 영상 ' + list.length + '건</p>' +
+      list.map(v =>
+        '<div class="videoitem">' +
+          '<span>●</span>' +
+          '<span class="who">' + esc(v.name || v.sid || '') + '</span>' +
+          (v.link ? '<a href="' + esc(v.link) + '" target="_blank" rel="noopener">열어 보기</a>' : '') +
+          '<span class="at">' + esc(v.at || '') + '</span>' +
+        '</div>').join('')
+    : '<p class="dim">아직 낸 영상이 없습니다.</p>';
 }
