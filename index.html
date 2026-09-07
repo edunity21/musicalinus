@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#121212">
+<meta name="theme-color" content="#EEF6F2">
 <meta name="robots" content="noindex">
 
 <title>MUSICALINUS 제작소 · 학생용</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231DB954'/%3E%3Ctext x='16' y='23' font-size='17' text-anchor='middle'%3E%F0%9F%8E%AD%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230B7A4E'/%3E%3Ctext x='16' y='23' font-size='17' text-anchor='middle'%3E%F0%9F%8E%AD%3C/text%3E%3C/svg%3E">
 
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
@@ -116,6 +116,7 @@
         <button class="tab" role="tab" data-tab="act"    aria-selected="false">막 설계</button>
         <button class="tab" role="tab" data-tab="scene"  aria-selected="false">장면 대본 <span class="dot" id="dotScene">0</span></button>
         <button class="tab" role="tab" data-tab="number" aria-selected="false">넘버 <span class="dot" id="dotNumber">0</span></button>
+        <button class="tab" role="tab" data-tab="files"  aria-selected="false">파일 <span class="dot" id="dotFiles">0</span></button>
         <button class="tab" role="tab" data-tab="out"    aria-selected="false">미리보기·제출</button>
       </nav>
     </div>
@@ -313,7 +314,65 @@
       </div>
     </section>
 
-    <!-- ---------- 탭 5 · 미리보기 · 제출 ---------- -->
+    <!-- ---------- 탭 5 · 파일 ---------- -->
+    <section class="panel" id="panel-files" role="tabpanel" hidden>
+      <div class="rolebar" id="roleBar5"></div>
+
+      <div class="notice">
+        <b>파일은 모둠원 누구나</b> 올리고 지울 수 있습니다. 남이 올린 것을 지우려면 발표 리더에게 말하세요.<br>
+        <b>음원과 그림</b>은 여기서 바로 올립니다. <b>동영상</b>은 파일이 너무 커서 구글 폼으로 냅니다.
+      </div>
+
+      <!-- 음원·이미지 -->
+      <div class="card">
+        <h2>음원 · 그림 올리기</h2>
+        <p class="muted" style="font-size:.9rem">
+          Suno에서 받은 mp3, Canva로 만든 포스터, 무대 스케치를 올립니다.
+          한 파일에 <b id="upMax">18</b>MB까지, 모둠당 <b id="upCount">12</b>개까지.</p>
+
+        <div class="uploadbox" id="dropZone">
+          <input type="file" id="fileInput" multiple hidden>
+          <button class="btn primary" id="btnPickFile">파일 고르기</button>
+          <p class="dim" style="margin:10px 0 0; font-size:.86rem" id="upHint">
+            여기로 끌어다 놓아도 됩니다 · mp3 · m4a · wav · png · jpg · pdf</p>
+        </div>
+
+        <div id="upProgress" class="uploading hidden">
+          <div class="bar"><div class="fill" id="upFill"></div></div>
+          <div class="txt" id="upTxt">올리는 중…</div>
+        </div>
+
+        <div class="filelist" id="fileList" style="margin-top:14px"></div>
+      </div>
+
+      <!-- 동영상 -->
+      <div class="card" id="videoCard">
+        <h2>동영상 내기</h2>
+        <p class="muted" style="font-size:.9rem">
+          리릭 비디오, 편집 영상, 공연 녹화는 여기서 냅니다.
+          단추를 누르면 <b>새 창</b>이 열리고, 학급·모둠·학번·이름은 이미 채워져 있습니다.
+          파일만 고르고 [제출]을 누르면 됩니다.</p>
+
+        <div class="btnrow">
+          <button class="btn primary" id="btnVideoForm">영상 내기 (새 창)</button>
+          <button class="btn ghost" id="btnVideoRefresh">낸 것 확인하기</button>
+        </div>
+
+        <div id="videoList" style="margin-top:14px"></div>
+
+        <p class="dim" style="margin-top:10px; font-size:.84rem">
+          새 창이 열리지 않으면 브라우저가 팝업을 막은 것입니다. 주소창 오른쪽 끝의
+          작은 아이콘을 눌러 <b>허용</b>해 주세요.</p>
+      </div>
+
+      <div class="card hidden" id="videoOff">
+        <h2>동영상 내기</h2>
+        <p class="muted">선생님이 아직 영상 제출용 폼을 연결하지 않으셨습니다.
+          음원과 그림은 위에서 그대로 올리면 됩니다.</p>
+      </div>
+    </section>
+
+    <!-- ---------- 탭 6 · 미리보기 · 제출 ---------- -->
     <section class="panel" id="panel-out" role="tabpanel" hidden>
       <div class="card no-print">
         <h2>완성 검사</h2>

@@ -1075,3 +1075,185 @@ body.exam .nowbar { border-top-color: #A3122A; }
   background: var(--accent); color: var(--accent-in); border-color: transparent;
 }
 .chooser button[disabled] { opacity: .35; cursor: not-allowed; text-decoration: line-through; }
+
+/* 파일 올리기 ------------------------------------------------------------*/
+.uploadbox {
+  border: 2px dashed var(--line); border-radius: var(--r-lg);
+  padding: 22px 16px; text-align: center; background: var(--card-2);
+  transition: border-color var(--fast), background var(--fast);
+}
+.uploadbox.over { border-color: var(--accent); background: rgba(29,185,84,.08); }
+
+.uploading { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.uploading .bar { flex: 1; height: 8px; border-radius: 999px; background: var(--card-3); overflow: hidden; }
+.uploading .fill { height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+.uploading .txt { font-size: .84rem; color: var(--muted); white-space: nowrap; }
+
+.filelist { display: flex; flex-direction: column; gap: 10px; }
+.fileitem {
+  background: var(--card-2); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 10px 12px;
+}
+.fileitem .top { display: flex; align-items: center; gap: 10px; }
+.fileitem .ic {
+  width: 34px; height: 34px; flex: none; border-radius: 9px;
+  display: grid; place-items: center; font-size: 1.05rem;
+  background: var(--card-3); color: var(--accent);
+}
+.fileitem .nm { font-weight: 700; font-size: .95rem; word-break: break-all; }
+.fileitem .sub { font-size: .78rem; color: var(--dim); }
+.fileitem .grow { flex: 1; min-width: 0; }
+.fileitem .acts { display: flex; gap: 6px; flex: none; }
+.fileitem iframe {
+  width: 100%; border: 0; border-radius: var(--r-sm); margin-top: 10px;
+  background: #000;
+}
+.fileitem iframe.audio { height: 62px; }
+.fileitem iframe.image { height: 340px; }
+
+.videoitem {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--card-2); border-left: 3px solid var(--accent);
+  border-radius: var(--r-sm); padding: 9px 12px; margin-bottom: 8px; font-size: .92rem;
+}
+.videoitem .who { font-weight: 700; }
+.videoitem .at { color: var(--dim); font-size: .8rem; margin-left: auto; white-space: nowrap; }
+
+/* ===========================================================================
+ *  15. 파스텔 테마 (2026-09-07)
+ *
+ *  · 학생 화면 = 민트 그린,  교사 화면 = 하늘색.
+ *  · 아래 두 덩어리(:root / body.teacher)의 색만 바꾸면 전체 색이 바뀝니다.
+ *  · 예전 검은 화면으로 되돌리려면 이 15번 구역을 통째로 지우면 됩니다.
+ * =========================================================================*/
+
+:root {
+  color-scheme: light;
+
+  --bg:          #EEF6F2;   /* 바탕 — 아주 옅은 민트 */
+  --card:        #FFFFFF;   /* 카드 */
+  --card-2:      #F4FAF7;   /* 카드 위에 올라간 것 */
+  --card-3:      #E9F4EF;   /* 입력칸 */
+  --line:        #D2E4DB;   /* 선 */
+
+  --text:        #14312B;   /* 글자 */
+  --muted:       #45605A;   /* 흐린 글자 */
+  --dim:         #5E736D;   /* 더 흐린 글자 */
+
+  --accent:      #0B7A4E;   /* 포인트 — 깊은 민트 그린 (글자로도 읽힙니다) */
+  --accent-in:   #FFFFFF;   /* 포인트 색 위 글자 */
+  --accent-soft: #DBF0E5;   /* 포인트 연한 바탕 */
+
+  --danger:      #C62B3E;
+  --danger-soft: #FBE3E6;
+  --warn:        #9C5B00;
+  --warn-soft:   #FBEED6;
+
+  --shadow:      0 1px 2px rgba(20, 49, 43, .07), 0 6px 16px rgba(20, 49, 43, .05);
+  --shadow-lg:   0 10px 30px rgba(20, 49, 43, .12);
+}
+
+/* 교사 화면 — 하늘색 */
+body.teacher {
+  --bg:          #ECF4FA;
+  --card-2:      #F3F8FC;
+  --card-3:      #E6F1F9;
+  --line:        #D1E2EF;
+
+  --text:        #122C3D;
+  --muted:       #3E5A70;
+  --dim:         #5A7387;
+
+  --accent:      #0B6FA4;
+  --accent-in:   #FFFFFF;
+  --accent-soft: #DAECF8;
+
+  --shadow:      0 1px 2px rgba(18, 44, 61, .07), 0 6px 16px rgba(18, 44, 61, .05);
+  --shadow-lg:   0 10px 30px rgba(18, 44, 61, .12);
+}
+
+/* ---- 어두운 화면용으로 박아 두었던 색을 밝은 화면에 맞춥니다 --------------*/
+
+.btn            { background: var(--card); box-shadow: var(--shadow); }
+.btn:hover      { background: var(--card-3); }
+.btn.ghost      { background: transparent; box-shadow: none; }
+.btn.ghost:hover{ background: var(--card-2); }
+.btn.primary    { box-shadow: 0 1px 2px rgba(20,49,43,.10), 0 6px 14px rgba(11,122,78,.22); }
+.btn.danger     { background: transparent; color: var(--danger);
+                  border-color: #E9BEC5; box-shadow: none; }
+.btn.danger:hover { background: var(--danger-soft); }
+
+.topbar   { background: rgba(255, 255, 255, .93); box-shadow: 0 1px 0 var(--line); }
+.actionbar{ background: rgba(255, 255, 255, .95); box-shadow: var(--shadow); }
+.nowbar   { box-shadow: 0 -1px 0 var(--line), 0 -6px 16px rgba(20,49,43,.05); }
+
+.progress .bar { background: var(--card-3); }
+.tab .dot      { background: var(--card-3); color: var(--muted); }
+
+.statusbar.open   { background: var(--accent-soft); color: var(--accent); }
+.statusbar.closed { background: var(--danger-soft); color: var(--danger); }
+.statusbar.wait   { background: var(--warn-soft);   color: var(--warn); }
+
+.card     { box-shadow: var(--shadow); }
+.gate-box { box-shadow: var(--shadow-lg); }
+.notice   { background: var(--accent-soft); color: var(--muted); }
+
+.mecard   { background: var(--card-2); }
+.me-ok    { background: var(--accent-soft); color: var(--accent); }
+.me-no    { background: var(--card-3); color: var(--muted); }
+
+.badge.done  { background: var(--accent-soft); color: var(--accent); }
+.badge.draft { background: var(--warn-soft);   color: var(--warn); }
+.badge.none  { background: var(--card-3);      color: var(--dim); }
+
+.switch .track2 { background: #C2D5CE; }
+body.teacher .switch .track2 { background: #BFD3E2; }
+
+.modal      { background: rgba(20, 49, 43, .42); }
+.modal-box  { box-shadow: var(--shadow-lg); }
+
+.toast { background: var(--text); color: #fff; box-shadow: var(--shadow-lg); }
+
+.chooser button:hover:not([disabled]) { background: var(--card-3); color: var(--text); }
+.line .ops .mini:hover { background: var(--card-3); color: var(--text); }
+.uploadbox.over { border-color: var(--accent); background: var(--accent-soft); }
+.uploadbox      { background: var(--card-2); }
+
+.nowbar .thumb  { background: var(--accent-soft); color: var(--accent); }
+.toast          { border-color: transparent; }
+.fileitem iframe{ background: var(--card-3); }
+.line .ops .mini{ background: var(--card); }
+.mate           { background: var(--card); }
+.tagpill        { background: var(--card); }
+.rolebar        { background: var(--card); box-shadow: var(--shadow); }
+.pfield         { background: var(--card-2); }
+.checkitem      { background: var(--card-2); }
+.script .sc-box { background: var(--card-2); }
+.videoitem      { background: var(--accent-soft); }
+.actcard        { box-shadow: var(--shadow); }
+.actcard:hover  { background: var(--card-2); }
+.actcard[aria-pressed="true"] { background: var(--accent-soft); }
+.gate-step.off  { opacity: .45; }
+input, textarea, select { color: var(--text); }
+::placeholder   { color: var(--dim); opacity: 1; }
+
+.line .txt[readonly],
+.lyricline .txt[readonly] { color: var(--muted); }
+.script .sc-lyr { color: var(--text); }
+.answer .an-a   { color: var(--text); }
+
+.line      { box-shadow: 0 1px 1px rgba(20,49,43,.04); }
+.line.dir  { background: var(--card-2); }
+.fileitem  { box-shadow: 0 1px 1px rgba(20,49,43,.04); }
+.tb-scroll { box-shadow: var(--shadow); }
+
+.think li { background: var(--card-2); color: var(--text); }
+
+/* 인쇄 — 대본은 흰 종이에 검은 글씨로 */
+@media print {
+  .topbar, .nowbar, .actionbar, .no-print, .tabs, .statusbar, .rolebar { display: none !important; }
+  body, .card, .script { background: #fff !important; color: #000 !important; box-shadow: none !important; }
+  .script .sc-place, .script .sc-dir { color: #333 !important; }
+  .script .sc-num, .script .sc-lyr   { color: #000 !important; }
+  .script .sc-box { background: #F2F2F2 !important; }
+}
