@@ -3,10 +3,10 @@
  *  버전: teacher v1.0.0 (2026-09-07)
  * ==========================================================================*/
 
-/* ★ 2026-09-08 — 수업 시간·제출 시간을 통제하지 않습니다.
-      입장과 제출은 늘 열려 있고, 낸 뒤에도 학생이 고쳐서 다시 낼 수 있습니다. */
+const LESSON_MINUTES = 50;   // [수업 시작] 이 여는 시간
+const SUBMIT_MINUTES = 25;   // [제출 열기] 가 여는 시간
 
-const TEACHER_VERSION = 'teacher v1.3.0 (2026-09-08) 5인모둠';
+const TEACHER_VERSION = 'teacher v1.3.0 (2026-09-08)';
 
 const T = {
   cfg: [], cls: '', status: null, roster: [], pending: [], edit: null,
@@ -19,6 +19,8 @@ const T = {
 
 window.addEventListener('DOMContentLoaded', function () {
   $('#verLine').textContent = [TEACHER_VERSION, STORY_VERSION, COMMON_VERSION].join(' · ');
+  $('#lenLesson').textContent = LESSON_MINUTES;
+  $('#lenSubmit').textContent = SUBMIT_MINUTES;
   if (!SERVER_URL) {
     $('#gateMsg').innerHTML = '<span class="err">config.js 의 SERVER_URL 이 비어 있습니다.</span>';
   }
@@ -42,6 +44,7 @@ async function onLogin() {
 
   await loadConfig();
   resetIdle();
+  T.tickTimer = setInterval(paintCtrl, 15000);
 }
 
 function bind() {
@@ -54,7 +57,9 @@ function bind() {
     window.scrollTo({ top: 0 });
   }));
   $('#btnLogout').addEventListener('click', () => { Auth.signOut(); location.reload(); });
-  $('#btnForceOpen').addEventListener('click', forceOpen);
+  $('#btnAllOpen').addEventListener('click', () => bulk('open'));
+  $('#btnAllSubmit').addEventListener('click', () => bulk('submit'));
+  $('#btnAllClose').addEventListener('click', () => bulk('close'));
   $('#selClass').addEventListener('change', e => { T.cls = e.target.value; loadStatus(); });
   $('#btnRefresh').addEventListener('click', loadStatus);
   $('#btnLoadScript').addEventListener('click', loadScript);
@@ -80,9 +85,7 @@ function resetIdle() {
 }
 
 /* ===========================================================================
- *  2. 학급 · 공지
- *     ★ 입장과 제출은 항상 열려 있습니다. 여닫는 단추와 마감 시각을 없앴습니다.
- *       여기서는 학생 화면 위쪽 띠에 뜨는 공지만 씁니다.
+ *  2. 수업 통제
  * =========================================================================*/
 
 async function loadConfig() {
@@ -90,66 +93,131 @@ async function loadConfig() {
   if (!res.ok) { toast(errText(res), 'bad'); return; }
   T.cfg = res.rows || [];
   paintCtrl();
-  paintNotice();
+  paintFineTune();
 }
+
+function fmtLocal(d) {
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+         ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+function plus(min) { const d = new Date(); d.setMinutes(d.getMinutes() + min); return fmtLocal(d); }
 
 function rowOf(cls) { return T.cfg.find(r => r.cls === cls) || null; }
 
-/** 그 학급에 보이는 공지. 학급 칸이 비면 '전체' 줄을 따릅니다. */
-function noticeOf(cls) {
+function stateOf(cls) {
   const r = rowOf(cls), base = rowOf('전체');
-  return (r && r.notice) || (base && base.notice) || '';
+  const g = (k) => {
+    if (!r) return base ? base[k] : '';
+    const v = r[k];
+    return (v === '' || v === undefined || v === null || v === false) && base && r.raw &&
+           (r.raw[['entryOn','entryStart','entryEnd','submitOn','reopen','submitStart','submitEnd','notice'].indexOf(k)] === '')
+           ? base[k] : v;
+  };
+  const now = new Date();
+  const parse = s => { if (!s) return null; const d = new Date(String(s).replace(' ', 'T')); return isNaN(d) ? null : d; };
+  const eOn = g('entryOn'), eS = parse(g('entryStart')), eE = parse(g('entryEnd'));
+  const sOn = g('submitOn'), sS = parse(g('submitStart')), sE = parse(g('submitEnd'));
+  let entry = 'closed';
+  if (eOn) entry = (eS && now < eS) ? 'before' : (eE && now > eE) ? 'after' : 'open';
+  let submit = 'closed';
+  if (entry === 'open' && sOn) submit = (sS && now < sS) ? 'before' : (sE && now > sE) ? 'after' : 'open';
+  return { entry: entry, submit: submit, entryEnd: eE, submitEnd: sE };
 }
 
 function paintCtrl() {
   const body = $('#ctrlBody');
   if (!body) return;
-  body.innerHTML = CLASS_LIST.map(function (c) {
+  body.innerHTML = CLASS_LIST.map(c => {
+    const st = stateOf(c);
+    const eBadge = st.entry === 'open' ? '<span class="badge done">수업 중</span>'
+                 : st.entry === 'before' ? '<span class="badge draft">시작 전</span>'
+                 : st.entry === 'after' ? '<span class="badge none">종료</span>'
+                 : '<span class="badge none">닫힘</span>';
+    const sBadge = st.submit === 'open' ? '<span class="badge done">제출 열림</span>'
+                 : '<span class="badge none">닫힘</span>';
+    const left = st.entry === 'open' && st.entryEnd
+      ? fmtLeft(st.entryEnd - new Date()) + ' 남음' : '—';
     return '<tr>' +
       '<td><b>' + c + '</b></td>' +
-      '<td><span class="badge done">열림</span></td>' +
-      '<td><span class="badge done">열림</span></td>' +
+      '<td>' + eBadge + '</td>' +
+      '<td>' + sBadge + '</td>' +
+      '<td class="num dim">' + left + '</td>' +
       '<td class="num dim" data-sub="' + c + '">—</td>' +
-      '<td class="dim">' + esc(noticeOf(c)) + '</td>' +
-    '</tr>';
+      '<td><div class="btnrow">' +
+        '<button class="btn sm primary" data-act="open" data-c="' + c + '">수업+제출 열기</button>' +
+        '<button class="btn sm" data-act="lesson" data-c="' + c + '">수업만</button>' +
+        '<button class="btn sm" data-act="submit" data-c="' + c + '">제출 열기</button>' +
+        '<button class="btn sm danger" data-act="close" data-c="' + c + '">종료</button>' +
+      '</div></td></tr>';
   }).join('');
+  $$('#ctrlBody button').forEach(b => b.addEventListener('click', () => one(b.dataset.c, b.dataset.act)));
 }
 
-/** 설정 시트를 통째로 '열림'으로 맞춥니다.
-    새 서버는 설정과 상관없이 늘 열어 주므로, 서버가 아직 예전 버전일 때만 쓰입니다. */
-async function forceOpen() {
-  if (!confirm('설정 시트를 모두 “열림”으로 맞출까요?\n서버가 아직 예전 버전이면 이 한 번으로 열립니다.')) return;
-  const patch = { entryOn: true, entryStart: '', entryEnd: '',
-                  submitOn: true, reopen: true, submitStart: '', submitEnd: '' };
-  const patches = ['전체'].concat(CLASS_LIST).map(function (c) { return { cls: c, patch: patch }; });
-  const res = await apiPost('teacherSetConfigAll', { idToken: Auth.idToken, patches: patches }, 40000);
+function patchFor(kind) {
+  if (kind === 'lesson') {
+    return { entryOn: true, entryStart: '', entryEnd: plus(LESSON_MINUTES), submitOn: false };
+  }
+  if (kind === 'submit') {
+    return { submitOn: true, submitStart: '', submitEnd: plus(SUBMIT_MINUTES) };
+  }
+  if (kind === 'open') {
+    return { entryOn: true, entryStart: '', entryEnd: plus(LESSON_MINUTES),
+             submitOn: true, submitStart: '', submitEnd: plus(SUBMIT_MINUTES) };
+  }
+  return { entryOn: false, submitOn: false, entryEnd: '', submitEnd: '' };
+}
+
+async function one(cls, kind) {
+  const res = await apiPost('teacherSetConfig', { idToken: Auth.idToken, cls: cls, patch: patchFor(kind) });
   if (!res.ok) { toast(errText(res), 'bad'); return; }
-  toast('모든 학급을 열림으로 맞췄습니다', 'ok');
+  toast(cls + ' — ' + ({ open: '수업과 제출을 열었습니다', lesson: '수업을 열었습니다',
+    submit: '제출을 열었습니다', close: '종료했습니다' })[kind], 'ok');
   await loadConfig();
 }
 
-function paintNotice() {
+async function bulk(kind) {
+  const label = { open: '모든 학급 수업을 시작', submit: '모든 학급 제출을 열기',
+                  close: '모든 학급을 종료' }[kind];
+  if (!confirm(label + '할까요?')) return;
+  const patches = CLASS_LIST.map(c => ({ cls: c, patch: patchFor(kind) }));
+  const res = await apiPost('teacherSetConfigAll', { idToken: Auth.idToken, patches: patches }, 40000);
+  if (!res.ok) { toast(errText(res), 'bad'); return; }
+  toast('바꿨습니다', 'ok');
+  await loadConfig();
+}
+
+function paintFineTune() {
   const rows = ['전체'].concat(CLASS_LIST);
-  $('#noticeBox').innerHTML =
+  $('#fineTune').innerHTML =
     '<div class="tb-scroll"><table class="tb"><thead><tr>' +
-      '<th style="width:90px">학급</th><th>공지 — 학생 화면 맨 위 띠에 그대로 뜹니다</th>' +
-    '</tr></thead><tbody>' + rows.map(function (c) {
+      '<th>학급</th><th>입장</th><th>입장 마감</th><th>제출</th><th>다시 내기</th><th>제출 마감</th><th>공지</th>' +
+    '</tr></thead><tbody>' + rows.map(c => {
       const r = rowOf(c) || {};
       return '<tr data-c="' + c + '">' +
         '<td><b>' + c + '</b></td>' +
-        '<td><input class="t-input" data-k="notice" style="width:100%" value="' + esc(r.notice || '') +
-          '" placeholder="' + (c === '전체' ? '모든 학급에 함께 보일 말' : '이 학급에만 보일 말') + '"></td>' +
+        '<td><label class="switch"><input type="checkbox" data-k="entryOn"' + (r.entryOn ? ' checked' : '') + '><span class="track2"></span></label></td>' +
+        '<td><input class="t-input" data-k="entryEnd" style="width:150px" value="' + esc(r.entryEnd || '') + '" placeholder="2026-11-20 15:10"></td>' +
+        '<td><label class="switch"><input type="checkbox" data-k="submitOn"' + (r.submitOn ? ' checked' : '') + '><span class="track2"></span></label></td>' +
+        '<td><label class="switch"><input type="checkbox" data-k="reopen"' + (r.reopen ? ' checked' : '') + '><span class="track2"></span></label></td>' +
+        '<td><input class="t-input" data-k="submitEnd" style="width:150px" value="' + esc(r.submitEnd || '') + '"></td>' +
+        '<td><input class="t-input" data-k="notice" style="width:220px" value="' + esc(r.notice || '') + '"></td>' +
       '</tr>';
     }).join('') + '</tbody></table></div>' +
-    '<div class="btnrow" style="margin-top:12px"><button class="btn primary" id="btnSaveNotice">공지 저장</button></div>';
+    '<div class="btnrow" style="margin-top:12px"><button class="btn primary" id="btnSaveFine">바뀐 설정 저장</button></div>';
 
-  $('#btnSaveNotice').addEventListener('click', async function () {
-    const patches = $$('#noticeBox tbody tr').map(function (tr) {
-      return { cls: tr.dataset.c, patch: { notice: $('[data-k="notice"]', tr).value } };
+  $('#btnSaveFine').addEventListener('click', async () => {
+    const patches = [];
+    $$('#fineTune tbody tr').forEach(tr => {
+      const patch = {};
+      $$('[data-k]', tr).forEach(el => {
+        patch[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value;
+      });
+      patches.push({ cls: tr.dataset.c, patch: patch });
     });
     const res = await apiPost('teacherSetConfigAll', { idToken: Auth.idToken, patches: patches }, 40000);
     if (!res.ok) { toast(errText(res), 'bad'); return; }
-    toast('공지를 저장했습니다', 'ok');
+    toast('저장했습니다', 'ok');
     await loadConfig();
   });
 }
@@ -202,6 +270,9 @@ function paintStatus() {
       '<div class="progress" style="margin:10px 0">' +
         '<div class="bar"><div class="fill" style="width:' + bar + '%"></div></div>' +
         '<div class="txt">' + bar + '%</div></div>' +
+      '<p class="dim" style="font-size:.86rem; margin:0 0 6px">자리 ' + g.members.length + ' / ' +
+        (typeof MEMBERS_PER_GROUP === 'number' ? MEMBERS_PER_GROUP : 5) + '명' +
+        (g.members.length < 5 ? ' — 아직 빈 자리가 있습니다' : '') + '</p>' +
       '<div class="mates" style="margin-bottom:10px">' + (g.members.length
         ? g.members.map(m => '<span class="mate" data-sid="' + esc(m.sid) + '" style="cursor:pointer">' +
             '<span class="sw" style="background:' + ((castOf(m.role) || {}).color || '#666') + '"></span>' +
