@@ -6,7 +6,7 @@
 const LESSON_MINUTES = 50;   // [수업 시작] 이 여는 시간
 const SUBMIT_MINUTES = 25;   // [제출 열기] 가 여는 시간
 
-const TEACHER_VERSION = 'teacher v1.4.0 (2026-09-08) 5자리고정';
+const TEACHER_VERSION = 'teacher v1.5.0 (2026-09-08) 배역5';
 
 const T = {
   cfg: [], cls: '', status: null, roster: [], pending: [], edit: null,
@@ -350,7 +350,8 @@ function openEdit(sid) {
   $('#edJob').innerHTML = JOBS.map(j => '<option value="' + j.key + '"' +
     (m.job === j.key ? ' selected' : '') + '>' + esc(j.name) +
     (j.optional ? ' (정원 초과 시)' : '') + '</option>').join('');
-  $('#edRole').innerHTML = CAST.map(c => '<option value="' + c.key + '"' +
+  $('#edRole').innerHTML = CAST.filter(c => !c.retired || m.role === c.key)
+    .map(c => '<option value="' + c.key + '"' +
     (m.role === c.key ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
   $('#editModal').hidden = false;
 }
@@ -391,7 +392,7 @@ async function loadScript() {
       '<p class="dim">' + esc(SHOW.genre) + ' · ' + esc(SHOW.target) + '</p>' +
       '<div style="margin-top:20px; text-align:left">' +
         '<div class="sc-scene">등장인물</div>' +
-        CAST.map(c => '<div class="sc-say"><span class="n">' + esc(c.name) + '</span><span>' +
+        CAST_PICK.map(c => '<div class="sc-say"><span class="n">' + esc(c.name) + '</span><span>' +
           esc(c.line) + '</span></div>').join('') +
         '<div class="sc-scene" style="margin-top:18px">수록 넘버</div>' +
         res.acts.map(a => {
@@ -449,7 +450,7 @@ function exportScript() {
   const cls = T.script.cls;
   const out = [SHOW.title, SHOW.subtitle + ' · ' + cls, ''];
   out.push('등장인물');
-  CAST.forEach(c => out.push('  ' + c.name + ' — ' + c.line));
+  CAST_PICK.forEach(c => out.push('  ' + c.name + ' — ' + c.line));
   out.push('');
   T.script.acts.forEach(a => {
     const w = a.work;
@@ -573,7 +574,8 @@ function openEditFromRoster(r) {
   $('#edJob').innerHTML = JOBS.map(j => '<option value="' + j.key + '"' +
     (r.job === j.key ? ' selected' : '') + '>' + esc(j.name) +
     (j.optional ? ' (정원 초과 시)' : '') + '</option>').join('');
-  $('#edRole').innerHTML = CAST.map(c => '<option value="' + c.key + '"' +
+  $('#edRole').innerHTML = CAST.filter(c => !c.retired || r.role === c.key)
+    .map(c => '<option value="' + c.key + '"' +
     (r.role === c.key ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
   $('#editModal').hidden = false;
 }

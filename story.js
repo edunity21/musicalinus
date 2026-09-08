@@ -15,7 +15,7 @@
  *    학생·교사 화면이 같이 바뀝니다.
  * ==========================================================================*/
 
-const STORY_VERSION = 'story v1.4.0 (2026-09-08)';
+const STORY_VERSION = 'story v1.5.0 (2026-09-08) 배역5';
 
 /* 작품 기본값. 교사 화면에서 학급마다 바꿀 수 있습니다. */
 const SHOW = {
@@ -27,6 +27,7 @@ const SHOW = {
 
 /* ---------------------------------------------------------------------------
  *  1. 등장인물 — 학급 공통
+ *     다섯 인물입니다. 모둠이 다섯 명이므로 한 사람이 한 인물씩 맡습니다.
  *     key 는 저장에 쓰는 이름이라 바꾸면 이미 쓴 대사와 연결이 끊깁니다.
  * -------------------------------------------------------------------------*/
 const CAST = [
@@ -34,9 +35,15 @@ const CAST = [
   { key: 'minseo',  name: '민서',   line: '운동과 급식을 인생의 활력소로 삼는 절친. 쾌활하지만 속이 깊다', color: '#F2C14E' },
   { key: 'yuna',    name: '유나',   line: '성적에 민감하고 완벽을 추구하지만 내면에 예술적 갈망을 품은 반장', color: '#F06292' },
   { key: 'teacher', name: '선생님', line: '아이들의 진심을 끌어내 주는 따뜻한 조력자',                     color: '#48C9B0' },
-  { key: 'ens1',    name: '앙상블A', line: '중3 교실의 다양한 개성과 고민을 가진 친구 (모둠이 이름을 붙입니다)', color: '#B96BD8' },
-  { key: 'ens2',    name: '앙상블B', line: '중3 교실의 다양한 개성과 고민을 가진 친구 (모둠이 이름을 붙입니다)', color: '#00C2C7' }
+  { key: 'ens1',    name: '앙상블',  line: '중3 교실의 다양한 개성과 고민을 가진 친구. 모둠이 이름을 새로 붙입니다', color: '#B96BD8' },
+  /* 예전에 쓰던 두 번째 앙상블. 화면에는 나오지 않지만, 이미 이 배역으로
+     써 둔 대사가 있으면 이름이 제대로 보이도록 남겨 둡니다. */
+  { key: 'ens2',    name: '앙상블B', line: '(지금은 쓰지 않는 배역)', color: '#00C2C7', retired: true }
 ];
+
+/* 화면에서 고를 수 있는 배역 — 다섯 명 모둠에 맞춰 다섯 인물입니다. */
+const CAST_PICK = CAST.filter(c => !c.retired);
+
 const castOf = k => CAST.find(c => c.key === k) || null;
 const castName = k => (castOf(k) ? castOf(k).name : (k === 'all' ? '전원' : k || ''));
 
@@ -185,7 +192,7 @@ const ACTS = [
     beat: '종이 울리자 세상이 뒤집힌다. 뛰고, 먹고, 웃는 45분 동안만은 모두가 주인공이다.',
     ask: '별것 아닌 순간이 특별해지는 마법은 어디에서 오는가?',
     numberHint: { title: '3소박의 열기', genre: 'Funk Pop / Brass Ensemble' },
-    onstage: ['minseo', 'yuna', 'jihoo', 'ens1', 'ens2'],
+    onstage: ['minseo', 'yuna', 'jihoo', 'ens1'],
     sample: {
       scene: '3소박의 열기',
       logline: '종이 울리자 운동장과 급식실이 뒤집힌다. 45분 동안만은 모두가 주인공이다.',
@@ -290,7 +297,7 @@ const ACTS = [
     beat: '무대가 끝나고 숨을 몰아쉰다. 지나온 시간이 헛되지 않았음을 서로에게 증명한다. (피날레)',
     ask: '오늘의 우리는 먼 훗날의 우리에게 무엇을 남기는가?',
     numberHint: { title: '피날레 — 우리의 3학년이 빛나게', genre: 'Grand Finale / Broadway Anthem' },
-    onstage: ['yuna', 'jihoo', 'minseo', 'teacher', 'ens1', 'ens2'],
+    onstage: ['yuna', 'jihoo', 'minseo', 'teacher', 'ens1'],
     sample: {
       scene: '피날레 — 찬란한 3학년',
       logline: '무대가 끝나고 숨을 몰아쉬며, 지나온 시간이 헛되지 않았음을 서로에게 증명한다.',

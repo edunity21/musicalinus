@@ -10,7 +10,7 @@
  *  서버가 하나로 합쳐 주기 때문에 서로의 글이 지워지지 않습니다.
  * ==========================================================================*/
 
-const APP_VERSION = 'student v1.4.0 (2026-09-08) 5자리고정';
+const APP_VERSION = 'student v1.5.0 (2026-09-08) 배역5';
 
 /* ---------------------------------------------------------------------------
  *  0. 지금 상태
@@ -128,7 +128,7 @@ function openJoin() {
     $('#joinJobDuty').textContent = jobOf(JOIN.job) ? jobOf(JOIN.job).duty : '';
   }));
 
-  $('#joinRoles').innerHTML = CAST.map(c =>
+  $('#joinRoles').innerHTML = CAST_PICK.map(c =>
     '<button type="button" data-r="' + c.key + '" aria-pressed="false">' + esc(c.name) + '</button>').join('');
   $$('#joinRoles button').forEach(b => b.addEventListener('click', () => {
     JOIN.role = b.dataset.r;
@@ -412,6 +412,14 @@ function paintAll() {
   if (S.tab === 'out') { renderChecks(); renderPreview(); }
 }
 
+/** 고를 수 있는 배역. 우리 모둠이 이미 옛 배역을 쓰고 있으면 그것도 함께 보여 줍니다. */
+function pickCast() {
+  const used = {};
+  (S.members || []).forEach(m => { used[m.role] = true; });
+  Object.keys((S.work && S.work.castMap) || {}).forEach(k => { used[k] = true; });
+  return CAST.filter(c => !c.retired || used[c.key]);
+}
+
 function canEdit(field) {
   const owners = FIELD_OWNER[field];
   return !owners || owners.indexOf(S.job) >= 0;
@@ -500,11 +508,11 @@ function paintCastMap() {
     '<option value="' + esc(x.sid) + '"' + (map[m] === x.sid ? ' selected' : '') + '>' +
     esc(x.name) + '</option>').join('');
   const a = actOf(S.work.actNo || S.group);
-  const list = a ? a.onstage : CAST.map(c => c.key);
+  const list = a ? a.onstage : CAST_PICK.map(c => c.key);
   $('#castMap').innerHTML =
     '<p class="dim" style="font-size:.85rem">이 막에 나오는 인물: ' +
       list.map(k => esc(castName(k))).join(', ') + '</p>' +
-    '<div class="row-wrap">' + CAST.map(c =>
+    '<div class="row-wrap">' + pickCast().map(c =>
       '<label class="field" style="flex:1 1 160px">' +
         '<span><span class="sw" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' +
           c.color + ';margin-right:5px"></span>' + esc(c.name) +
@@ -542,7 +550,7 @@ function paintLines() {
   $('#addWho').innerHTML =
     (canDir ? '<option value="__dir">지문 (무대 지시)</option>' : '') +
     '<option value="' + esc(S.role) + '" selected>' + esc(myCast) + ' 대사</option>' +
-    (canDir ? CAST.filter(c => c.key !== S.role).map(c =>
+    (canDir ? pickCast().filter(c => c.key !== S.role).map(c =>
       '<option value="' + c.key + '">' + esc(c.name) + ' 대사</option>').join('') : '');
   $('#sceneHint').textContent = canDir
     ? '대본 리더는 지문과 모든 인물의 대사를 넣을 수 있습니다. 다만 다른 사람이 쓴 줄은 고칠 수 없습니다.'
@@ -666,7 +674,7 @@ function paintLyrics() {
 
   $('#addLyricWho').innerHTML =
     '<option value="">전원 (합창)</option>' +
-    CAST.map(c => '<option value="' + c.key + '">' + esc(c.name) + '</option>').join('');
+    pickCast().map(c => '<option value="' + c.key + '">' + esc(c.name) + '</option>').join('');
   $('#addLyricWho').disabled = !ok;
   $('#addLyricText').disabled = !ok;
   $('#btnAddLyric').disabled = !ok;
@@ -812,7 +820,7 @@ function scriptHtml(w, members) {
   });
   if (w.structure) h += '<div class="r"><span class="k">넘버 구성</span><span>' + esc(w.structure) + '</span></div>';
   if (w.staging)   h += '<div class="r"><span class="k">연출 노트</span><span>' + esc(w.staging) + '</span></div>';
-  const castLine = CAST.filter(c => cm[c.key]).map(c => c.name + ' — ' + nameOf(c.key)).join(' · ');
+  const castLine = CAST.filter(c => cm[c.key]).map(c => c.name + ' — ' + nameOf(c.key)).join(' · ');  /* 옛 배역도 보여 줍니다 */
   if (castLine) h += '<div class="r"><span class="k">배역</span><span>' + esc(castLine) + '</span></div>';
   h += '</div></div>';
   return h;
@@ -904,13 +912,13 @@ function exportText() {
 
 function renderStory() {
   $('#castList').innerHTML =
-    '<div class="mates" style="margin-top:10px">' + CAST.map(c =>
+    '<div class="mates" style="margin-top:10px">' + CAST_PICK.map(c =>
       '<span class="mate' + (c.key === S.role ? ' me' : '') + '">' +
         '<span class="sw" style="background:' + c.color + '"></span>' +
         '<span class="nm">' + esc(c.name) + '</span>' +
         (c.key === S.role ? '<span class="jb">← 내 배역</span>' : '') +
       '</span>').join('') + '</div>' +
-    '<ul class="think" style="margin-top:12px">' + CAST.map(c =>
+    '<ul class="think" style="margin-top:12px">' + CAST_PICK.map(c =>
       '<li><b>' + esc(c.name) + '</b> — ' + esc(c.line) + '</li>').join('') + '</ul>';
 
   $('#actMap').innerHTML = ACTS.map(a => {
