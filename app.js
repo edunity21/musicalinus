@@ -10,7 +10,7 @@
  *  서버가 하나로 합쳐 주기 때문에 서로의 글이 지워지지 않습니다.
  * ==========================================================================*/
 
-const APP_VERSION = 'student v1.2.0 (2026-09-08) 상시개방';
+const APP_VERSION = 'student v1.3.0 (2026-09-08) 5인모둠';
 
 /* ---------------------------------------------------------------------------
  *  0. 지금 상태
@@ -508,7 +508,7 @@ function paintCastMap() {
 /* ---- 대사·지문 ---------------------------------------------------------*/
 function myLine(x) {
   if (x.by === S.sid) return true;
-  if (x.kind === 'dir' && (S.job === 'script' || S.job === 'script2')) return true;
+  if (x.kind === 'dir' && S.job === 'script') return true;
   if (x.kind === 'say' && x.who === S.role) return true;
   return false;
 }
@@ -521,7 +521,7 @@ function paintLines() {
     : '<p class="dim">아직 한 줄도 없습니다. 아래에서 지문이나 대사를 넣어 보세요.</p>';
   wireLines(box, 'line');
 
-  const canDir = (S.job === 'script' || S.job === 'script2');
+  const canDir = (S.job === 'script');
   const myCast = castName(S.role);
   $('#addWho').innerHTML =
     (canDir ? '<option value="__dir">지문 (무대 지시)</option>' : '') +
@@ -551,7 +551,7 @@ function lineHtml(x, i, n) {
     opsHtml(mine, i, n, author) + '</div>';
 }
 function opsHtml(mine, i, n, author) {
-  const canOrder = (S.job === 'script' || S.job === 'script2');
+  const canOrder = (S.job === 'script');
   return '<div class="ops no-print">' +
     (canOrder && i > 0     ? '<button class="mini" data-op="up"   title="위로">▲</button>' : '') +
     (canOrder && i < n - 1 ? '<button class="mini" data-op="down" title="아래로">▼</button>' : '') +

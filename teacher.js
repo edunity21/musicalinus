@@ -6,7 +6,7 @@
 /* ★ 2026-09-08 — 수업 시간·제출 시간을 통제하지 않습니다.
       입장과 제출은 늘 열려 있고, 낸 뒤에도 학생이 고쳐서 다시 낼 수 있습니다. */
 
-const TEACHER_VERSION = 'teacher v1.2.0 (2026-09-08) 상시개방';
+const TEACHER_VERSION = 'teacher v1.3.0 (2026-09-08) 5인모둠';
 
 const T = {
   cfg: [], cls: '', status: null, roster: [], pending: [], edit: null,

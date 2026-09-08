@@ -15,7 +15,7 @@
  *    학생·교사 화면이 같이 바뀝니다.
  * ==========================================================================*/
 
-const STORY_VERSION = 'story v1.2.0 (2026-09-07)';
+const STORY_VERSION = 'story v1.2.0 (2026-09-08) 5인모둠';
 
 /* 작품 기본값. 교사 화면에서 학급마다 바꿀 수 있습니다. */
 const SHOW = {
@@ -34,8 +34,7 @@ const CAST = [
   { key: 'minseo',  name: '민서',   line: '운동과 급식을 인생의 활력소로 삼는 절친. 쾌활하지만 속이 깊다', color: '#F2C14E' },
   { key: 'yuna',    name: '유나',   line: '성적에 민감하고 완벽을 추구하지만 내면에 예술적 갈망을 품은 반장', color: '#F06292' },
   { key: 'teacher', name: '선생님', line: '아이들의 진심을 끌어내 주는 따뜻한 조력자',                     color: '#48C9B0' },
-  { key: 'ens1',    name: '앙상블A', line: '중3 교실의 다양한 개성과 고민을 가진 친구 (모둠이 이름을 붙입니다)', color: '#B96BD8' },
-  { key: 'ens2',    name: '앙상블B', line: '중3 교실의 다양한 개성과 고민을 가진 친구 (모둠이 이름을 붙입니다)', color: '#00C2C7' }
+  { key: 'ens1',    name: '앙상블',  line: '중3 교실의 다양한 개성과 고민을 가진 친구 (모둠이 이름을 붙입니다)', color: '#B96BD8' }
 ];
 const castOf = k => CAST.find(c => c.key === k) || null;
 const castName = k => (castOf(k) ? castOf(k).name : (k === 'all' ? '전원' : k || ''));
@@ -43,7 +42,6 @@ const castName = k => (castOf(k) ? castOf(k).name : (k === 'all' ? '전원' : k 
 /* ---------------------------------------------------------------------------
  *  2. 제작 역할 — 모둠 안에서 나누어 맡습니다
  *     한 사람이 배역 하나 + 제작 역할 하나를 맡습니다.
- *     기본은 다섯 자리(대본·작사·작곡·편곡·발표)입니다. 학급 30명이면 6모둠 × 5명.
  * -------------------------------------------------------------------------*/
 const JOBS = [
   { key: 'script', name: '대본 리더', icon: '✎',
@@ -60,23 +58,18 @@ const JOBS = [
     owns: ['넘버 구성', '데모 비교'] },
   { key: 'stage',   name: '발표 리더', icon: '▲',
     duty: '배역을 배정하고 등·퇴장, 소품, 조명 큐를 적습니다. 모둠 작품을 최종 제출합니다.',
-    owns: ['연출 노트', '제출'] },
-  /* 여섯 번째 자리. 다섯 자리가 다 찬 모둠에서만 열립니다.
-     학급이 30명이면(6모둠 × 5명) 학생 화면에 아예 나타나지 않습니다. */
-  { key: 'script2', name: '공동 대본', icon: '✎',
-    duty: '대본 리더와 함께 지문과 대사를 씁니다. 다섯 자리가 다 찬 모둠에만 열리는 여섯 번째 자리입니다.',
-    owns: ['지문', '대사 순서'], optional: true }
+    owns: ['연출 노트', '제출'] }
 ];
 const jobOf = k => JOBS.find(j => j.key === k) || null;
 const jobName = k => (jobOf(k) ? jobOf(k).name : '');
 
 /* 어떤 제작 역할이 어떤 칸을 고칠 수 있는지. 서버(Code.gs)에도 같은 표가 있습니다. */
 const FIELD_OWNER = {
-  actTitle:   ['script', 'script2'],
-  actTime:    ['script', 'script2'],
-  actPlace:   ['script', 'script2'],
-  sceneTitle: ['script', 'script2'],
-  logline:    ['script', 'script2'],
+  actTitle:   ['script'],
+  actTime:    ['script'],
+  actPlace:   ['script'],
+  sceneTitle: ['script'],
+  logline:    ['script'],
   numberTitle:['lyric'],
   lyrics:     ['lyric'],
   prompt:     ['compose'],
@@ -127,7 +120,7 @@ const ACTS = [
     beat: '종이 울리자 세상이 뒤집힌다. 뛰고, 먹고, 웃는 45분 동안만은 모두가 주인공이다.',
     ask: '별것 아닌 순간이 특별해지는 마법은 어디에서 오는가?',
     numberHint: { title: '3소박의 열기', genre: 'Funk Pop / Brass Ensemble' },
-    onstage: ['minseo', 'yuna', 'jihoo', 'ens1', 'ens2'],
+    onstage: ['minseo', 'yuna', 'jihoo', 'ens1'],
     sample: {
       dialogue: '민서 — (공을 가로채며) 이지후! 멍 때리지 말고 패스! 이 순간만큼은 전 세계가 다 우리 거야!',
       lyric: '점심시간 종소리는 우리들의 해방 공간 / 운동장에 모여 먼지 날리며'
@@ -169,7 +162,7 @@ const ACTS = [
     beat: '무대가 끝나고 숨을 몰아쉰다. 지나온 시간이 헛되지 않았음을 서로에게 증명한다. (피날레)',
     ask: '오늘의 우리는 먼 훗날의 우리에게 무엇을 남기는가?',
     numberHint: { title: '피날레 — 우리의 3학년이 빛나게', genre: 'Grand Finale / Broadway Anthem' },
-    onstage: ['yuna', 'jihoo', 'minseo', 'teacher', 'ens1', 'ens2'],
+    onstage: ['yuna', 'jihoo', 'minseo', 'teacher', 'ens1'],
     sample: {
       dialogue: '민서 — 우리가 어느 고등학교를 가든, 미래에 뭐가 되든 간에! 이 기억은 우리 뼈에 새겨졌다고!',
       lyric: '평범하고 지루했던 하루하루가 모여서 / 가장 아름다운 기억의 꽃을 피우네'
