@@ -10,14 +10,14 @@
  *  서버가 하나로 합쳐 주기 때문에 서로의 글이 지워지지 않습니다.
  * ==========================================================================*/
 
-const APP_VERSION = 'student v1.2.0 (2026-09-07) 5인모둠';
+const APP_VERSION = 'student v1.2.0 (2026-09-08) 상시개방';
 
 /* ---------------------------------------------------------------------------
  *  0. 지금 상태
  * -------------------------------------------------------------------------*/
 const S = {
   sid: '', name: '', cls: '', group: 0, job: '', role: '',
-  work: null, members: [], state: null, videos: [],
+  work: null, members: [], state: null, videos: [], videoForm: null,
   dirty: {}, lineOps: [], lyricOps: [],
   saving: false, lastSent: '', renderedRev: -1, tab: 'story',
   pollTimer: null, syncTimer: null, saveTimer: null
@@ -89,6 +89,7 @@ async function enter(sid, name, pw) {
   if (!res.ok) { gmsg('<span class="err">' + esc(errText(res)) + '</span>'); return; }
 
   S.sid = res.sid; S.name = res.name; S.cls = res.cls; S.state = res.state;
+  S.videoForm = res.videoForm || S.videoForm;
   S.group = res.group || 0; S.job = res.job || ''; S.role = res.role || '';
 
   if (!S.group || !S.job || !S.role) { openJoin(); return; }
@@ -118,9 +119,7 @@ function openJoin() {
   }));
 
   $('#joinJobs').innerHTML = JOBS.map(j =>
-    '<button type="button" data-j="' + j.key + '" aria-pressed="false"' +
-    (j.optional ? ' class="extra"' : '') + '>' + j.icon + ' ' + esc(j.name) +
-    (j.optional ? ' <span class="dim">여섯 번째</span>' : '') + '</button>').join('');
+    '<button type="button" data-j="' + j.key + '" aria-pressed="false">' + j.icon + ' ' + esc(j.name) + '</button>').join('');
   $$("#joinJobs button").forEach(b => b.addEventListener('click', () => {
     JOIN.job = b.dataset.j;
     $$("#joinJobs button").forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
@@ -145,31 +144,14 @@ async function loadMates() {
   $('#joinMates').innerHTML = taken.length
     ? '<span class="dim" style="width:100%">이미 자리를 잡은 모둠원</span>' + taken.map(m => mateChip(m)).join('')
     : '<span class="dim">아직 아무도 들어오지 않았습니다. 첫 번째입니다.</span>';
-  /* 기본 다섯 자리가 모두 찬 뒤에야 '공동 대본'(여섯 번째)이 열립니다.
-     학급이 30명이면 6모둠 × 5명이라 여섯 번째 자리는 끝까지 잠겨 있습니다. */
-  const core = JOBS.filter(j => !j.optional).map(j => j.key);
-  const coreFull = core.every(k => taken.some(m => m.job === k && m.sid !== S.sid));
-
   $$("#joinJobs button").forEach(b => {
-    const j = jobOf(b.dataset.j);
     const t = taken.some(m => m.job === b.dataset.j && m.sid !== S.sid);
-    const notYet = !!(j && j.optional) && !coreFull;
-    b.disabled = t || notYet;
-    b.classList.toggle('taken', t);
-    b.classList.toggle('notyet', notYet && !t);
-    b.title = t ? '이미 다른 모둠원이 맡았습니다'
-            : notYet ? '다섯 자리가 다 차면 열립니다' : '';
+    b.disabled = t; b.style.opacity = t ? .35 : 1;
   });
   $$('#joinRoles button').forEach(b => {
     const t = taken.some(m => m.role === b.dataset.r && m.sid !== S.sid);
-    b.disabled = t;
-    b.classList.toggle('taken', t);
+    b.disabled = t; b.style.opacity = t ? .35 : 1;
   });
-
-  const left = core.filter(k => !taken.some(m => m.job === k && m.sid !== S.sid)).length;
-  $('#joinSeats').textContent = taken.length >= MEMBERS_PER_GROUP
-    ? MEMBERS_PER_GROUP + '자리가 다 찼습니다. 여섯 번째 자리(공동 대본)로만 들어갈 수 있습니다.'
-    : '이 모둠에 남은 자리 ' + left + '개 · 정원 ' + MEMBERS_PER_GROUP + '명';
 }
 
 async function doJoin() {
@@ -297,6 +279,7 @@ async function sync(loud) {
   if (!res.ok) { if (loud) toast(errText(res), 'bad'); setSave('연결 안 됨'); return; }
   S.state = res.state; S.members = res.members || [];
   S.videos = res.videos || [];
+  S.videoForm = res.videoForm || S.videoForm;
   mergeWork(res.work);
   paintStatus();
   paintAll();
@@ -376,19 +359,13 @@ function paintStatus() {
   const bar = $('#statusBar');
   if (!S.state) { bar.className = 'statusbar wait'; bar.textContent = '서버 상태를 확인하는 중…'; return; }
   const st = S.state;
-  let cls = 'wait', txt = '';
-  if (st.entry !== 'open') {
+  let cls = 'open', txt = '언제든 쓰고, 다 되면 [우리 막 제출하기]를 누르세요. 낸 뒤에도 고칠 수 있습니다.';
+  if (st.entry !== 'open') {          /* 서버가 아직 예전 버전일 때만 나옵니다 */
     cls = 'closed';
-    txt = st.entry === 'before' ? '수업이 아직 시작되지 않았습니다.'
-        : st.entry === 'after'  ? '수업 시간이 끝났습니다. 쓴 내용은 남아 있습니다.'
-        : '선생님이 수업을 열어 주실 때까지 기다려 주세요.';
-  } else if (st.submit === 'open') {
-    cls = 'open';
-    const left = st.submitEndsAt ? (new Date(st.submitEndsAt) - new Date(st.now || Date.now())) : 0;
-    txt = '제출 열림' + (left > 0 ? ' · 남은 시간 ' + fmtLeft(left) : '');
-  } else {
+    txt = '아직 들어올 수 없습니다. 선생님께 알려 주세요.';
+  } else if (st.submit !== 'open') {
     cls = 'wait';
-    txt = '수업 중 · 제출은 아직 닫혀 있습니다. 계속 써 두세요.';
+    txt = '지금은 쓰기만 됩니다. 계속 써 두세요.';
   }
   if (st.notice) txt += '  |  ' + st.notice;
   bar.className = 'statusbar ' + cls;
@@ -1093,16 +1070,26 @@ async function deleteFile(fid) {
   toast('지웠습니다', 'ok');
 }
 
-/* ---- 동영상 폼 ---------------------------------------------------------*/
+/* ---- 동영상 폼 ---------------------------------------------------------
+ *  서버(Apps Script)가 알려 준 폼을 먼저 씁니다.
+ *  스프레드시트 메뉴에서 [영상 제출 폼 만들기] 를 한 번 실행하면 여기로 내려옵니다.
+ *  config.js 의 VIDEO_FORM 은 손으로 넣고 싶을 때만 쓰는 예비입니다.
+ * ------------------------------------------------------------------------*/
+function vform() {
+  if (S.videoForm && S.videoForm.url) return S.videoForm;
+  return (typeof VIDEO_FORM !== 'undefined') ? VIDEO_FORM : null;
+}
+
 function videoFormUrl() {
-  if (!VIDEO_FORM || !VIDEO_FORM.url) return '';
-  const u = VIDEO_FORM.url.replace(/\?.*$/, '');
+  const VF = vform();
+  if (!VF || !VF.url) return '';
+  const u = VF.url.replace(/\?.*$/, '');
   const p = [];
   const add = (k, v) => { if (k && v) p.push(encodeURIComponent(k) + '=' + encodeURIComponent(v)); };
-  add(VIDEO_FORM.entryClass, S.cls);
-  add(VIDEO_FORM.entryGroup, S.group + '모둠');
-  add(VIDEO_FORM.entrySid, S.sid);
-  add(VIDEO_FORM.entryName, S.name);
+  add(VF.entryClass, S.cls);
+  add(VF.entryGroup, S.group + '모둠');
+  add(VF.entrySid, S.sid);
+  add(VF.entryName, S.name);
   return u + (p.length ? '?usp=pp_url&' + p.join('&') : '');
 }
 
@@ -1115,7 +1102,8 @@ function openVideoForm() {
 }
 
 function paintVideos() {
-  const has = !!(VIDEO_FORM && VIDEO_FORM.url);
+  const VF = vform();
+  const has = !!(VF && VF.url);
   const card = $('#videoCard'), off = $('#videoOff');
   if (card) card.classList.toggle('hidden', !has);
   if (off) off.classList.toggle('hidden', has);
