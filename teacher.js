@@ -6,7 +6,7 @@
 const LESSON_MINUTES = 50;   // [수업 시작] 이 여는 시간
 const SUBMIT_MINUTES = 25;   // [제출 열기] 가 여는 시간
 
-const TEACHER_VERSION = 'teacher v1.3.0 (2026-09-08)';
+const TEACHER_VERSION = 'teacher v1.4.0 (2026-09-08) 5자리고정';
 
 const T = {
   cfg: [], cls: '', status: null, roster: [], pending: [], edit: null,
@@ -348,7 +348,8 @@ function openEdit(sid) {
     ACTS.map(a => '<option value="' + a.no + '"' + (Number(m.group) === a.no ? ' selected' : '') + '>' +
       a.no + '모둠 · 제' + a.no + '막 ' + esc(a.title) + '</option>').join('');
   $('#edJob').innerHTML = JOBS.map(j => '<option value="' + j.key + '"' +
-    (m.job === j.key ? ' selected' : '') + '>' + esc(j.name) + '</option>').join('');
+    (m.job === j.key ? ' selected' : '') + '>' + esc(j.name) +
+    (j.optional ? ' (정원 초과 시)' : '') + '</option>').join('');
   $('#edRole').innerHTML = CAST.map(c => '<option value="' + c.key + '"' +
     (m.role === c.key ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
   $('#editModal').hidden = false;
@@ -570,7 +571,8 @@ function openEditFromRoster(r) {
     ACTS.map(a => '<option value="' + a.no + '"' + (Number(r.group) === a.no ? ' selected' : '') + '>' +
       a.no + '모둠 · 제' + a.no + '막 ' + esc(a.title) + '</option>').join('');
   $('#edJob').innerHTML = JOBS.map(j => '<option value="' + j.key + '"' +
-    (r.job === j.key ? ' selected' : '') + '>' + esc(j.name) + '</option>').join('');
+    (r.job === j.key ? ' selected' : '') + '>' + esc(j.name) +
+    (j.optional ? ' (정원 초과 시)' : '') + '</option>').join('');
   $('#edRole').innerHTML = CAST.map(c => '<option value="' + c.key + '"' +
     (r.role === c.key ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
   $('#editModal').hidden = false;

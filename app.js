@@ -10,7 +10,7 @@
  *  서버가 하나로 합쳐 주기 때문에 서로의 글이 지워지지 않습니다.
  * ==========================================================================*/
 
-const APP_VERSION = 'student v1.3.0 (2026-09-08) 예시넣기';
+const APP_VERSION = 'student v1.4.0 (2026-09-08) 5자리고정';
 
 /* ---------------------------------------------------------------------------
  *  0. 지금 상태
@@ -117,10 +117,11 @@ function openJoin() {
     loadMates();
   }));
 
-  $('#joinJobs').innerHTML = JOBS.map(j =>
-    '<button type="button" data-j="' + j.key + '" aria-pressed="false"' +
-    (j.optional ? ' class="extra"' : '') + '>' + j.icon + ' ' + esc(j.name) +
-    (j.optional ? ' <span class="dim">여섯 번째</span>' : '') + '</button>').join('');
+  /* 학생 화면에는 기본 다섯 자리만 보입니다.
+     정원을 넘긴 학생은 선생님이 교사 화면에서 넣어 주십니다. */
+  $('#joinJobs').innerHTML = JOBS.filter(j => !j.optional).map(j =>
+    '<button type="button" data-j="' + j.key + '" aria-pressed="false">' +
+    j.icon + ' ' + esc(j.name) + '</button>').join('');
   $$("#joinJobs button").forEach(b => b.addEventListener('click', () => {
     JOIN.job = b.dataset.j;
     $$("#joinJobs button").forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
@@ -145,20 +146,13 @@ async function loadMates() {
   $('#joinMates').innerHTML = taken.length
     ? '<span class="dim" style="width:100%">이미 자리를 잡은 모둠원</span>' + taken.map(m => mateChip(m)).join('')
     : '<span class="dim">아직 아무도 들어오지 않았습니다. 첫 번째입니다.</span>';
-  /* 기본 다섯 자리가 모두 찬 뒤에야 '공동 대본'(여섯 번째)이 열립니다.
-     학급이 30명이면 6모둠 × 5명이라 여섯 번째 자리는 끝까지 잠겨 있습니다. */
   const core = JOBS.filter(j => !j.optional).map(j => j.key);
-  const coreFull = core.every(k => taken.some(m => m.job === k && m.sid !== S.sid));
 
   $$("#joinJobs button").forEach(b => {
-    const j = jobOf(b.dataset.j);
     const t = taken.some(m => m.job === b.dataset.j && m.sid !== S.sid);
-    const notYet = !!(j && j.optional) && !coreFull;
-    b.disabled = t || notYet;
+    b.disabled = t;
     b.classList.toggle('taken', t);
-    b.classList.toggle('notyet', notYet && !t);
-    b.title = t ? '이미 다른 모둠원이 맡았습니다'
-            : notYet ? '다섯 자리가 다 차면 열립니다' : '';
+    b.title = t ? '이미 다른 모둠원이 맡았습니다' : '';
   });
   $$('#joinRoles button').forEach(b => {
     const t = taken.some(m => m.role === b.dataset.r && m.sid !== S.sid);
@@ -167,8 +161,8 @@ async function loadMates() {
   });
 
   const left = core.filter(k => !taken.some(m => m.job === k && m.sid !== S.sid)).length;
-  $('#joinSeats').textContent = taken.length >= MEMBERS_PER_GROUP
-    ? MEMBERS_PER_GROUP + '자리가 다 찼습니다. 여섯 번째 자리(공동 대본)로만 들어갈 수 있습니다.'
+  $('#joinSeats').textContent = left === 0
+    ? '이 모둠은 ' + MEMBERS_PER_GROUP + '자리가 다 찼습니다. 다른 모둠을 고르세요.'
     : '이 모둠에 남은 자리 ' + left + '개 · 정원 ' + MEMBERS_PER_GROUP + '명';
 }
 
