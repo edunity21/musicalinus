@@ -3,15 +3,21 @@
  *  버전: teacher v1.0.0 (2026-09-07)
  * ==========================================================================*/
 
-const LESSON_MINUTES = 50;   // [수업 시작] 이 여는 시간
-const SUBMIT_MINUTES = 25;   // [제출 열기] 가 여는 시간
+/* ★ 2026-09-08 — 수업 시간·제출 시간을 통제하지 않습니다.
+      입장과 제출은 늘 열려 있고, 낸 뒤에도 학생이 고쳐서 다시 낼 수 있습니다. */
 
-const TEACHER_VERSION = 'teacher v1.5.0 (2026-09-08) 배역5';
+const TEACHER_VERSION = 'teacher v1.6.0 (2026-09-09) 정원5';
 
 const T = {
   cfg: [], cls: '', status: null, roster: [], pending: [], edit: null,
-  idleTimer: null, tickTimer: null
+  idleTimer: null, tickTimer: null,
+  /* ★ v1.6 — 모둠 현황 자동 갱신과 자리 겹침 검사에 쓰는 것들 */
+  seatGroups: [], statusAt: 0, liveTimer: null, agoTimer: null, statusBusy: false
 };
+const SIZE = (typeof GROUP_SIZE === 'number' ? GROUP_SIZE : 5);
+/* 예비 자리(공동 대본)는 정원 밖입니다. 사람 수를 셀 때 빼고 셉니다. */
+const isSpare = m => !!(jobOf(m.job) && jobOf(m.job).teacherOnly);
+const headcount = list => (list || []).filter(m => !isSpare(m)).length;
 
 /* ===========================================================================
  *  1. 로그인
@@ -19,8 +25,6 @@ const T = {
 
 window.addEventListener('DOMContentLoaded', function () {
   $('#verLine').textContent = [TEACHER_VERSION, STORY_VERSION, COMMON_VERSION].join(' · ');
-  $('#lenLesson').textContent = LESSON_MINUTES;
-  $('#lenSubmit').textContent = SUBMIT_MINUTES;
   if (!SERVER_URL) {
     $('#gateMsg').innerHTML = '<span class="err">config.js 의 SERVER_URL 이 비어 있습니다.</span>';
   }
@@ -44,7 +48,6 @@ async function onLogin() {
 
   await loadConfig();
   resetIdle();
-  T.tickTimer = setInterval(paintCtrl, 15000);
 }
 
 function bind() {
@@ -57,9 +60,7 @@ function bind() {
     window.scrollTo({ top: 0 });
   }));
   $('#btnLogout').addEventListener('click', () => { Auth.signOut(); location.reload(); });
-  $('#btnAllOpen').addEventListener('click', () => bulk('open'));
-  $('#btnAllSubmit').addEventListener('click', () => bulk('submit'));
-  $('#btnAllClose').addEventListener('click', () => bulk('close'));
+  $('#btnForceOpen').addEventListener('click', forceOpen);
   $('#selClass').addEventListener('change', e => { T.cls = e.target.value; loadStatus(); });
   $('#btnRefresh').addEventListener('click', loadStatus);
   $('#btnLoadScript').addEventListener('click', loadScript);
@@ -73,6 +74,20 @@ function bind() {
   $('#btnCloseEdit').addEventListener('click', () => { $('#editModal').hidden = true; });
   $('#btnSaveEdit').addEventListener('click', saveEdit);
   $('#btnRemoveEdit').addEventListener('click', removeEdit);
+
+  /* ★ v1.6 — 자리 정리 단추와, 모달 안에서 고를 때마다 하는 겹침 검사 */
+  $('#btnFixSeats').addEventListener('click', fixSeats);
+  $('#btnAutoAssign').addEventListener('click', autoAssign);
+  $('#chkLive').addEventListener('change', () => { if ($('#chkLive').checked) loadStatus(true); });
+  $('#edGroup').addEventListener('change', () => {
+    T.edit.group = Number($('#edGroup').value);
+    const pick = pickFreeSeat(T.seatGroups, T.edit.sid, T.edit.group);
+    if (pick) { T.edit.job = pick.job; T.edit.role = pick.role; }
+    paintSeatSelects(); checkEditWarn();
+  });
+  $('#edJob').addEventListener('change',  () => { T.edit.job  = $('#edJob').value;  checkEditWarn(); });
+  $('#edRole').addEventListener('change', () => { T.edit.role = $('#edRole').value; checkEditWarn(); });
+  startLive();
   ['click', 'keydown', 'mousemove'].forEach(ev => document.addEventListener(ev, resetIdle, { passive: true }));
 }
 
@@ -85,7 +100,9 @@ function resetIdle() {
 }
 
 /* ===========================================================================
- *  2. 수업 통제
+ *  2. 학급 · 공지
+ *     ★ 입장과 제출은 항상 열려 있습니다. 여닫는 단추와 마감 시각을 없앴습니다.
+ *       여기서는 학생 화면 위쪽 띠에 뜨는 공지만 씁니다.
  * =========================================================================*/
 
 async function loadConfig() {
@@ -93,131 +110,66 @@ async function loadConfig() {
   if (!res.ok) { toast(errText(res), 'bad'); return; }
   T.cfg = res.rows || [];
   paintCtrl();
-  paintFineTune();
+  paintNotice();
 }
-
-function fmtLocal(d) {
-  const p = n => String(n).padStart(2, '0');
-  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
-         ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
-}
-function plus(min) { const d = new Date(); d.setMinutes(d.getMinutes() + min); return fmtLocal(d); }
 
 function rowOf(cls) { return T.cfg.find(r => r.cls === cls) || null; }
 
-function stateOf(cls) {
+/** 그 학급에 보이는 공지. 학급 칸이 비면 '전체' 줄을 따릅니다. */
+function noticeOf(cls) {
   const r = rowOf(cls), base = rowOf('전체');
-  const g = (k) => {
-    if (!r) return base ? base[k] : '';
-    const v = r[k];
-    return (v === '' || v === undefined || v === null || v === false) && base && r.raw &&
-           (r.raw[['entryOn','entryStart','entryEnd','submitOn','reopen','submitStart','submitEnd','notice'].indexOf(k)] === '')
-           ? base[k] : v;
-  };
-  const now = new Date();
-  const parse = s => { if (!s) return null; const d = new Date(String(s).replace(' ', 'T')); return isNaN(d) ? null : d; };
-  const eOn = g('entryOn'), eS = parse(g('entryStart')), eE = parse(g('entryEnd'));
-  const sOn = g('submitOn'), sS = parse(g('submitStart')), sE = parse(g('submitEnd'));
-  let entry = 'closed';
-  if (eOn) entry = (eS && now < eS) ? 'before' : (eE && now > eE) ? 'after' : 'open';
-  let submit = 'closed';
-  if (entry === 'open' && sOn) submit = (sS && now < sS) ? 'before' : (sE && now > sE) ? 'after' : 'open';
-  return { entry: entry, submit: submit, entryEnd: eE, submitEnd: sE };
+  return (r && r.notice) || (base && base.notice) || '';
 }
 
 function paintCtrl() {
   const body = $('#ctrlBody');
   if (!body) return;
-  body.innerHTML = CLASS_LIST.map(c => {
-    const st = stateOf(c);
-    const eBadge = st.entry === 'open' ? '<span class="badge done">수업 중</span>'
-                 : st.entry === 'before' ? '<span class="badge draft">시작 전</span>'
-                 : st.entry === 'after' ? '<span class="badge none">종료</span>'
-                 : '<span class="badge none">닫힘</span>';
-    const sBadge = st.submit === 'open' ? '<span class="badge done">제출 열림</span>'
-                 : '<span class="badge none">닫힘</span>';
-    const left = st.entry === 'open' && st.entryEnd
-      ? fmtLeft(st.entryEnd - new Date()) + ' 남음' : '—';
+  body.innerHTML = CLASS_LIST.map(function (c) {
     return '<tr>' +
       '<td><b>' + c + '</b></td>' +
-      '<td>' + eBadge + '</td>' +
-      '<td>' + sBadge + '</td>' +
-      '<td class="num dim">' + left + '</td>' +
+      '<td><span class="badge done">열림</span></td>' +
+      '<td><span class="badge done">열림</span></td>' +
       '<td class="num dim" data-sub="' + c + '">—</td>' +
-      '<td><div class="btnrow">' +
-        '<button class="btn sm primary" data-act="open" data-c="' + c + '">수업+제출 열기</button>' +
-        '<button class="btn sm" data-act="lesson" data-c="' + c + '">수업만</button>' +
-        '<button class="btn sm" data-act="submit" data-c="' + c + '">제출 열기</button>' +
-        '<button class="btn sm danger" data-act="close" data-c="' + c + '">종료</button>' +
-      '</div></td></tr>';
+      '<td class="dim">' + esc(noticeOf(c)) + '</td>' +
+    '</tr>';
   }).join('');
-  $$('#ctrlBody button').forEach(b => b.addEventListener('click', () => one(b.dataset.c, b.dataset.act)));
 }
 
-function patchFor(kind) {
-  if (kind === 'lesson') {
-    return { entryOn: true, entryStart: '', entryEnd: plus(LESSON_MINUTES), submitOn: false };
-  }
-  if (kind === 'submit') {
-    return { submitOn: true, submitStart: '', submitEnd: plus(SUBMIT_MINUTES) };
-  }
-  if (kind === 'open') {
-    return { entryOn: true, entryStart: '', entryEnd: plus(LESSON_MINUTES),
-             submitOn: true, submitStart: '', submitEnd: plus(SUBMIT_MINUTES) };
-  }
-  return { entryOn: false, submitOn: false, entryEnd: '', submitEnd: '' };
-}
-
-async function one(cls, kind) {
-  const res = await apiPost('teacherSetConfig', { idToken: Auth.idToken, cls: cls, patch: patchFor(kind) });
-  if (!res.ok) { toast(errText(res), 'bad'); return; }
-  toast(cls + ' — ' + ({ open: '수업과 제출을 열었습니다', lesson: '수업을 열었습니다',
-    submit: '제출을 열었습니다', close: '종료했습니다' })[kind], 'ok');
-  await loadConfig();
-}
-
-async function bulk(kind) {
-  const label = { open: '모든 학급 수업을 시작', submit: '모든 학급 제출을 열기',
-                  close: '모든 학급을 종료' }[kind];
-  if (!confirm(label + '할까요?')) return;
-  const patches = CLASS_LIST.map(c => ({ cls: c, patch: patchFor(kind) }));
+/** 설정 시트를 통째로 '열림'으로 맞춥니다.
+    새 서버는 설정과 상관없이 늘 열어 주므로, 서버가 아직 예전 버전일 때만 쓰입니다. */
+async function forceOpen() {
+  if (!confirm('설정 시트를 모두 “열림”으로 맞출까요?\n서버가 아직 예전 버전이면 이 한 번으로 열립니다.')) return;
+  const patch = { entryOn: true, entryStart: '', entryEnd: '',
+                  submitOn: true, reopen: true, submitStart: '', submitEnd: '' };
+  const patches = ['전체'].concat(CLASS_LIST).map(function (c) { return { cls: c, patch: patch }; });
   const res = await apiPost('teacherSetConfigAll', { idToken: Auth.idToken, patches: patches }, 40000);
   if (!res.ok) { toast(errText(res), 'bad'); return; }
-  toast('바꿨습니다', 'ok');
+  toast('모든 학급을 열림으로 맞췄습니다', 'ok');
   await loadConfig();
 }
 
-function paintFineTune() {
+function paintNotice() {
   const rows = ['전체'].concat(CLASS_LIST);
-  $('#fineTune').innerHTML =
+  $('#noticeBox').innerHTML =
     '<div class="tb-scroll"><table class="tb"><thead><tr>' +
-      '<th>학급</th><th>입장</th><th>입장 마감</th><th>제출</th><th>다시 내기</th><th>제출 마감</th><th>공지</th>' +
-    '</tr></thead><tbody>' + rows.map(c => {
+      '<th style="width:90px">학급</th><th>공지 — 학생 화면 맨 위 띠에 그대로 뜹니다</th>' +
+    '</tr></thead><tbody>' + rows.map(function (c) {
       const r = rowOf(c) || {};
       return '<tr data-c="' + c + '">' +
         '<td><b>' + c + '</b></td>' +
-        '<td><label class="switch"><input type="checkbox" data-k="entryOn"' + (r.entryOn ? ' checked' : '') + '><span class="track2"></span></label></td>' +
-        '<td><input class="t-input" data-k="entryEnd" style="width:150px" value="' + esc(r.entryEnd || '') + '" placeholder="2026-11-20 15:10"></td>' +
-        '<td><label class="switch"><input type="checkbox" data-k="submitOn"' + (r.submitOn ? ' checked' : '') + '><span class="track2"></span></label></td>' +
-        '<td><label class="switch"><input type="checkbox" data-k="reopen"' + (r.reopen ? ' checked' : '') + '><span class="track2"></span></label></td>' +
-        '<td><input class="t-input" data-k="submitEnd" style="width:150px" value="' + esc(r.submitEnd || '') + '"></td>' +
-        '<td><input class="t-input" data-k="notice" style="width:220px" value="' + esc(r.notice || '') + '"></td>' +
+        '<td><input class="t-input" data-k="notice" style="width:100%" value="' + esc(r.notice || '') +
+          '" placeholder="' + (c === '전체' ? '모든 학급에 함께 보일 말' : '이 학급에만 보일 말') + '"></td>' +
       '</tr>';
     }).join('') + '</tbody></table></div>' +
-    '<div class="btnrow" style="margin-top:12px"><button class="btn primary" id="btnSaveFine">바뀐 설정 저장</button></div>';
+    '<div class="btnrow" style="margin-top:12px"><button class="btn primary" id="btnSaveNotice">공지 저장</button></div>';
 
-  $('#btnSaveFine').addEventListener('click', async () => {
-    const patches = [];
-    $$('#fineTune tbody tr').forEach(tr => {
-      const patch = {};
-      $$('[data-k]', tr).forEach(el => {
-        patch[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value;
-      });
-      patches.push({ cls: tr.dataset.c, patch: patch });
+  $('#btnSaveNotice').addEventListener('click', async function () {
+    const patches = $$('#noticeBox tbody tr').map(function (tr) {
+      return { cls: tr.dataset.c, patch: { notice: $('[data-k="notice"]', tr).value } };
     });
     const res = await apiPost('teacherSetConfigAll', { idToken: Auth.idToken, patches: patches }, 40000);
     if (!res.ok) { toast(errText(res), 'bad'); return; }
-    toast('저장했습니다', 'ok');
+    toast('공지를 저장했습니다', 'ok');
     await loadConfig();
   });
 }
@@ -226,13 +178,21 @@ function paintFineTune() {
  *  3. 모둠 현황
  * =========================================================================*/
 
-async function loadStatus() {
+async function loadStatus(quiet) {
+  if (T.statusBusy) return;
   T.cls = $('#selClass').value || T.cls;
-  $('#groupCards').innerHTML = '<p class="dim">불러오는 중…</p>';
+  if (!quiet) $('#groupCards').innerHTML = '<p class="dim">불러오는 중…</p>';
+  T.statusBusy = true;
   const res = await apiPost('teacherStatus', { idToken: Auth.idToken, cls: T.cls }, 40000);
-  if (!res.ok) { $('#groupCards').innerHTML = '<p class="err">' + esc(errText(res)) + '</p>'; return; }
+  T.statusBusy = false;
+  if (!res.ok) {
+    if (!quiet) $('#groupCards').innerHTML = '<p class="err">' + esc(errText(res)) + '</p>';
+    return;
+  }
   T.status = res;
-  $('#statusAt').textContent = '마지막 확인 ' + fmtDT(new Date());
+  T.seatGroups = res.groups;
+  T.statusAt = Date.now();
+  paintAgo();
   paintStatus();
   const cell = $('[data-sub="' + T.cls + '"]');
   if (cell) cell.textContent = res.groups.filter(g => g.submitted).length + ' / ' + res.groups.length;
@@ -248,7 +208,11 @@ function paintStatus() {
   const withVid = r.groups.filter(g => (g.videos || []).length).length;
   const fileN = r.groups.reduce((n, g) => n + (g.files || []).length, 0);
 
+  const dupN = r.groups.reduce((n, g) => n + overlapsIn(g).length, 0);
+  const overN = r.groups.filter(g => headcount(g.members) > SIZE).length;
+
   $('#statusKpis').innerHTML =
+    kpi('자리 겹침', (dupN + overN) ? (dupN + overN) + '건' : '없음', (dupN + overN) ? 'bad' : 'hi') +
     kpi('제출한 모둠', done + ' / ' + r.groups.length, done === r.groups.length ? 'hi' : '') +
     kpi('한 줄이라도 쓴 학생', active + ' / ' + people, active < people ? 'bad' : 'hi') +
     kpi('올린 음원·그림', fileN + '개', '') +
@@ -259,10 +223,16 @@ function paintStatus() {
     const bar = Math.max(0, Math.min(100, Math.round(
       (Math.min(g.says, 12) / 12 * 0.4 + Math.min(g.lyrics, 8) / 8 * 0.3 +
        (g.members.length ? g.active / g.members.length : 0) * 0.3) * 100)));
-    return '<div class="card">' +
+    const dup = overlapsIn(g);
+    const n = headcount(g.members);
+    const spare = g.members.length - n;
+    const seatCls = n > SIZE ? 'over' : (n === SIZE ? 'full' : (n ? 'near' : ''));
+    return '<div class="card' + (dup.length || n > SIZE ? ' seat-bad' : '') + '">' +
       '<div class="row-wrap" style="justify-content:space-between; align-items:center">' +
         '<h2 style="margin:0">' + g.group + '모둠 · 제' + g.actNo + '막 ' +
-          esc(g.actTitle || a.title || '(제목 없음)') + '</h2>' +
+          esc(g.actTitle || a.title || '(제목 없음)') + ' ' +
+          '<span class="seat ' + seatCls + '">' + n + '/' + SIZE +
+            (spare ? ' +예비' + spare : '') + '</span></h2>' +
         (g.submitted
           ? '<span class="badge done">제출 ' + esc(g.submittedAt) + '</span>'
           : '<span class="badge draft">작성 중</span>') +
@@ -270,15 +240,16 @@ function paintStatus() {
       '<div class="progress" style="margin:10px 0">' +
         '<div class="bar"><div class="fill" style="width:' + bar + '%"></div></div>' +
         '<div class="txt">' + bar + '%</div></div>' +
-      '<p class="dim" style="font-size:.86rem; margin:0 0 6px">자리 ' + g.members.length + ' / ' +
-        (typeof MEMBERS_PER_GROUP === 'number' ? MEMBERS_PER_GROUP : 5) + '명' +
-        (g.members.length < 5 ? ' — 아직 빈 자리가 있습니다' : '') + '</p>' +
       '<div class="mates" style="margin-bottom:10px">' + (g.members.length
         ? g.members.map(m => '<span class="mate" data-sid="' + esc(m.sid) + '" style="cursor:pointer">' +
             '<span class="sw" style="background:' + ((castOf(m.role) || {}).color || '#666') + '"></span>' +
             '<span class="nm">' + esc(m.name) + '</span>' +
             '<span class="jb">' + esc(castName(m.role)) + ' · ' + esc(jobName(m.job)) + '</span></span>').join('')
         : '<span class="dim">아직 아무도 들어오지 않았습니다</span>') + '</div>' +
+      (dup.length ? '<p class="seat-warn">자리 겹침 — ' + esc(dup.join(' · ')) +
+          ' <span class="dim">[자리 자동으로 정리하기] 를 누르면 풀립니다</span></p>' : '') +
+      (n > SIZE ? '<p class="seat-warn">정원(' + SIZE + '명)을 넘겼습니다 — 지금 ' + n + '명</p>' : '') +
+      (spare ? '<p class="dim" style="font-size:.84rem">예비 자리(공동 대본) ' + spare + '명 — 정원과 따로 셉니다</p>' : '') +
       '<p class="dim" style="font-size:.88rem">지문 ' + g.dirs + '줄 · 대사 ' + g.says + '줄 · 가사 ' + g.lyrics +
         '줄 · 쓴 사람 ' + g.active + '/' + g.members.length + ' · ♪ ' + esc(g.numberTitle || '(제목 없음)') + '</p>' +
       filesHtml(g) +
@@ -337,35 +308,168 @@ function filesHtml(g) {
   return h;
 }
 
+/* ---- ★ v1.6 자리 도우미 -----------------------------------------------
+ *  예전에는 미배정 학생을 누르면 '대본 리더 + 지후'가 늘 먼저 골라져 있었고,
+ *  그대로 저장하면 이미 그 자리에 앉은 학생과 겹쳤습니다. 겹치면 두 학생의
+ *  저장이 서로를 지웁니다. 이제 빈 자리를 골라 두고, 겹치면 먼저 알려 줍니다.
+ * ----------------------------------------------------------------------*/
+
+/** 한 모둠 안에서 제작 역할·배역이 겹친 곳을 찾아 말로 돌려줍니다. */
+function overlapsIn(g) {
+  const seenJ = {}, seenR = {}, out = [];
+  (g.members || []).forEach(m => {
+    if (seenJ[m.job]) out.push(jobName(m.job) + '(' + seenJ[m.job] + '·' + m.name + ')');
+    else seenJ[m.job] = m.name;
+    if (jobOf(m.job) && jobOf(m.job).teacherOnly) return;   /* 예비 자리는 배역을 함께 씁니다 */
+    if (seenR[m.role]) out.push(castName(m.role) + ' 역(' + seenR[m.role] + '·' + m.name + ')');
+    else seenR[m.role] = m.name;
+  });
+  return out;
+}
+
+/** 그 모둠(또는 학급 전체)에서 아직 비어 있는 자리 하나. */
+function pickFreeSeat(groups, sid, group) {
+  const list = groups || [];
+  const jobs = (typeof STUDENT_JOBS !== 'undefined' ? STUDENT_JOBS : JOBS).map(j => j.key);
+  const roles = CAST.map(c => c.key);
+  const seatIn = (g) => {
+    const mates = (g.members || []).filter(m => m.sid !== sid);
+    const uj = {}, ur = {};
+    mates.forEach(m => { uj[m.job] = 1; ur[m.role] = 1; });
+    const job = jobs.find(k => !uj[k]) || '';
+    const role = roles.find(k => !ur[k]) || '';
+    return (job && role) ? { group: g.group, job: job, role: role } : null;
+  };
+  if (group) {
+    const g = list.find(x => x.group === Number(group));
+    if (g) { const st = seatIn(g); if (st) return st; }
+  }
+  let best = null;
+  list.forEach(g => {
+    const n = headcount((g.members || []).filter(m => m.sid !== sid));
+    if (n >= SIZE) return;
+    if (!best || n < best.n) best = { n: n, g: g };
+  });
+  return best ? seatIn(best.g) : null;
+}
+
+/** 그 학급의 모둠별 명단. 지금 보고 있는 학급이면 이미 받아 둔 것을 씁니다. */
+async function membersByGroup(cls) {
+  if (T.status && T.status.cls === cls) return T.status.groups;
+  const res = await apiPost('teacherStatus', { idToken: Auth.idToken, cls: cls }, 40000);
+  return res.ok ? res.groups : [];
+}
+
 /* ---- 자리 고치기 모달 --------------------------------------------------*/
 function openEdit(sid) {
   const all = (T.status ? T.status.groups.reduce((a, g) => a.concat(g.members), []) : [])
     .concat((T.status && T.status.unassigned) || []);
   const m = all.find(x => x.sid === sid) || { sid: sid, name: '' };
-  T.edit = m;
-  $('#editTitle').textContent = m.name + ' (' + sid + ') 자리 고치기';
-  $('#edGroup').innerHTML = '<option value="0">— 없음 —</option>' +
-    ACTS.map(a => '<option value="' + a.no + '"' + (Number(m.group) === a.no ? ' selected' : '') + '>' +
-      a.no + '모둠 · 제' + a.no + '막 ' + esc(a.title) + '</option>').join('');
-  $('#edJob').innerHTML = JOBS.map(j => '<option value="' + j.key + '"' +
-    (m.job === j.key ? ' selected' : '') + '>' + esc(j.name) +
-    (j.optional ? ' (정원 초과 시)' : '') + '</option>').join('');
-  $('#edRole').innerHTML = CAST.filter(c => !c.retired || m.role === c.key)
-    .map(c => '<option value="' + c.key + '"' +
-    (m.role === c.key ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
-  $('#editModal').hidden = false;
+  openSeatModal(Object.assign({ cls: T.cls }, m));
 }
+function openEditFromRoster(r) { openSeatModal(r); }
+
+async function openSeatModal(m) {
+  T.edit = { sid: m.sid, name: m.name || '', cls: m.cls || T.cls,
+             group: Number(m.group) || 0, job: m.job || '', role: m.role || '' };
+  $('#editTitle').textContent = (T.edit.name || '') + ' (' + T.edit.sid + ') 자리 고치기';
+  $('#editWarn').hidden = true;
+  $('#edGroup').innerHTML = '<option value="0">— 없음 —</option>';
+  $('#edJob').innerHTML = ''; $('#edRole').innerHTML = '';
+  $('#editModal').hidden = false;
+
+  T.seatGroups = await membersByGroup(T.edit.cls);
+
+  /* ★ 아직 자리가 없거나 자리가 비어 있으면, 겹치지 않는 빈 자리를 미리 골라 둡니다 */
+  if (!T.edit.group || !T.edit.job || !T.edit.role) {
+    const pick = pickFreeSeat(T.seatGroups, T.edit.sid, T.edit.group);
+    if (pick) { T.edit.group = pick.group; T.edit.job = pick.job; T.edit.role = pick.role; }
+  }
+  paintGroupSelect();
+  paintSeatSelects();
+  checkEditWarn();
+}
+
+function paintGroupSelect() {
+  const cnt = {};
+  (T.seatGroups || []).forEach(g => { cnt[g.group] = headcount((g.members || []).filter(m => m.sid !== T.edit.sid)); });
+  $('#edGroup').innerHTML = '<option value="0">— 없음 —</option>' +
+    ACTS.map(a => {
+      const n = cnt[a.no] || 0;
+      return '<option value="' + a.no + '"' + (T.edit.group === a.no ? ' selected' : '') + '>' +
+        a.no + '모둠 (' + n + '/' + SIZE + ')' + (n >= SIZE ? ' · 다 참' : '') +
+        ' · 제' + a.no + '막 ' + esc(a.title) + '</option>';
+    }).join('');
+}
+
+function paintSeatSelects() {
+  const g = (T.seatGroups || []).find(x => x.group === T.edit.group);
+  const mates = g ? (g.members || []).filter(m => m.sid !== T.edit.sid) : [];
+  const tj = {}, tr = {};
+  mates.forEach(m => { tj[m.job] = m.name; tr[m.role] = m.name; });
+
+  $('#edJob').innerHTML = JOBS.map(j =>
+    '<option value="' + j.key + '"' + (T.edit.job === j.key ? ' selected' : '') + '>' +
+    esc(j.name) + (j.teacherOnly ? ' · 예비 자리' : '') +
+    (tj[j.key] ? ' — ' + esc(tj[j.key]) + ' 학생이 맡음' : '') + '</option>').join('');
+
+  $('#edRole').innerHTML = CAST.map(c =>
+    '<option value="' + c.key + '"' + (T.edit.role === c.key ? ' selected' : '') + '>' +
+    esc(c.name) + (tr[c.key] ? ' — ' + esc(tr[c.key]) + ' 학생이 맡음' : '') + '</option>').join('');
+}
+
+/** 지금 고른 자리가 겹치는지. 겹치면 모달 안에 빨간 상자로 알려 주고 목록을 돌려줍니다. */
+function checkEditWarn() {
+  const box = $('#editWarn'), btn = $('#btnSaveEdit');
+  if (!T.edit || !T.edit.group) { box.hidden = true; btn.classList.remove('danger'); return []; }
+  const g = (T.seatGroups || []).find(x => x.group === T.edit.group);
+  const mates = g ? (g.members || []).filter(m => m.sid !== T.edit.sid) : [];
+  const spare = !!(jobOf(T.edit.job) && jobOf(T.edit.job).teacherOnly);
+
+  const bad = [];
+  const j = mates.find(m => m.job === T.edit.job);
+  if (j) bad.push(jobName(T.edit.job) + ' 은(는) ' + j.name + ' 학생이 이미 맡았습니다.');
+  const r = mates.find(m => m.role === T.edit.role);
+  if (r && !spare) bad.push(castName(T.edit.role) + ' 배역은 ' + r.name + ' 학생이 이미 맡았습니다.');
+  if (!spare && headcount(mates) >= SIZE) bad.push('이 모둠은 이미 ' + headcount(mates) + '명입니다. 정원은 ' + SIZE + '명입니다.');
+
+  box.hidden = !bad.length;
+  box.innerHTML = bad.length
+    ? '<b>이대로 저장하면 겹칩니다</b><ul><li>' + bad.map(esc).join('</li><li>') + '</li></ul>' : '';
+  btn.classList.toggle('danger', !!bad.length);
+  return bad;
+}
+
 async function saveEdit() {
   if (!T.edit) return;
+  const bad = checkEditWarn();
+  if (bad.length && !confirm('겹치는 자리입니다.\n\n· ' + bad.join('\n· ') +
+      '\n\n그래도 저장할까요? (겹친 채로 두면 두 학생의 저장이 서로를 지웁니다)')) return;
+
+  $('#btnSaveEdit').disabled = true;
   const res = await apiPost('teacherSetGroup', {
     idToken: Auth.idToken, sid: T.edit.sid, name: T.edit.name,
-    group: Number($('#edGroup').value), job: $('#edJob').value, role: $('#edRole').value
+    group: Number($('#edGroup').value), job: $('#edJob').value, role: $('#edRole').value,
+    force: bad.length ? 1 : 0
   });
-  if (!res.ok) { toast(errText(res), 'bad'); return; }
+  $('#btnSaveEdit').disabled = false;
+
+  if (!res.ok) {
+    if (res.error === 'JOB_TAKEN' || res.error === 'ROLE_TAKEN') {
+      toast((res.error === 'JOB_TAKEN' ? '그 제작 역할' : '그 배역') + '은 ' +
+            (res.message || '다른') + ' 학생이 맡았습니다', 'bad', 5000);
+      T.seatGroups = await membersByGroup(T.edit.cls);
+      paintGroupSelect(); paintSeatSelects(); checkEditWarn();
+      return;
+    }
+    toast(errText(res), 'bad');
+    return;
+  }
   $('#editModal').hidden = true;
   toast('바꿨습니다', 'ok');
   loadStatus();
 }
+
 async function removeEdit() {
   if (!T.edit) return;
   if (!confirm(T.edit.name + ' 학생을 모둠에서 뺄까요?')) return;
@@ -373,6 +477,61 @@ async function removeEdit() {
   if (!res.ok) { toast(errText(res), 'bad'); return; }
   $('#editModal').hidden = true;
   loadStatus();
+}
+
+/* ---- ★ v1.6 자리 일괄 정리 --------------------------------------------*/
+async function fixSeats() {
+  if (!confirm(T.cls + ' 학급의 겹친 자리를 정리할까요?\n\n먼저 들어온 학생이 자리를 지키고,\n겹쳐 앉은 학생이 빈자리로 옮겨 갑니다.')) return;
+  $('#btnFixSeats').disabled = true;
+  const res = await apiPost('teacherFixSeats', { idToken: Auth.idToken, cls: T.cls }, 60000);
+  $('#btnFixSeats').disabled = false;
+  if (!res.ok) { toast(errText(res), 'bad'); return; }
+  const moved = res.moved || [], stuck = res.stuck || [];
+  toast(moved.length ? (moved.length + '명을 옮겼습니다') : '겹친 자리가 없습니다',
+        moved.length ? 'ok' : 'warn', 5000);
+  if (moved.length) console.log('[자리 정리]', moved);
+  if (stuck.length) toast(stuck.length + '명은 앉힐 자리가 없습니다. 모둠 수를 확인해 주세요.', 'bad', 7000);
+  loadStatus();
+}
+
+async function autoAssign() {
+  const idle = T.status ? (T.status.unassigned || []).length : 0;
+  if (!idle) { toast('아직 모둠에 못 들어간 학생이 없습니다', 'warn'); return; }
+  if (!confirm('아직 모둠에 못 들어간 ' + idle + '명을 남은 자리에 배치할까요?\n\n학번 순으로 한산한 모둠부터 채웁니다.')) return;
+  $('#btnAutoAssign').disabled = true;
+  const res = await apiPost('teacherAutoAssign', { idToken: Auth.idToken, cls: T.cls }, 60000);
+  $('#btnAutoAssign').disabled = false;
+  if (!res.ok) { toast(errText(res), 'bad'); return; }
+  const placed = res.placed || [], left = res.left || [];
+  toast(placed.length + '명을 배치했습니다' + (left.length ? ' · ' + left.length + '명은 자리가 없습니다' : ''),
+        left.length ? 'warn' : 'ok', 6000);
+  if (placed.length) console.log('[자동 편성]', placed);
+  loadStatus();
+}
+
+/* ---- ★ v1.6 스스로 새로 고치기 ----------------------------------------*/
+function startLive() {
+  const sec = (typeof TEACHER_POLL_SECONDS === 'number' ? TEACHER_POLL_SECONDS : 10);
+  clearInterval(T.liveTimer);
+  T.liveTimer = setInterval(() => {
+    if (document.hidden) return;
+    if ($('#panel-status').hidden) return;
+    if (!$('#editModal').hidden) return;
+    if (!$('#chkLive').checked) return;
+    loadStatus(true);
+  }, sec * 1000);
+  clearInterval(T.agoTimer);
+  T.agoTimer = setInterval(paintAgo, 1000);
+}
+
+function paintAgo() {
+  const el = $('#statusAt');
+  if (!el) return;
+  if (!T.statusAt) { el.textContent = ''; return; }
+  const d = Math.round((Date.now() - T.statusAt) / 1000);
+  el.textContent = d < 3 ? '방금 확인함'
+    : d < 60 ? d + '초 전 확인'
+    : Math.floor(d / 60) + '분 전 확인';
 }
 
 /* ===========================================================================
@@ -392,7 +551,7 @@ async function loadScript() {
       '<p class="dim">' + esc(SHOW.genre) + ' · ' + esc(SHOW.target) + '</p>' +
       '<div style="margin-top:20px; text-align:left">' +
         '<div class="sc-scene">등장인물</div>' +
-        CAST_PICK.map(c => '<div class="sc-say"><span class="n">' + esc(c.name) + '</span><span>' +
+        CAST.map(c => '<div class="sc-say"><span class="n">' + esc(c.name) + '</span><span>' +
           esc(c.line) + '</span></div>').join('') +
         '<div class="sc-scene" style="margin-top:18px">수록 넘버</div>' +
         res.acts.map(a => {
@@ -450,7 +609,7 @@ function exportScript() {
   const cls = T.script.cls;
   const out = [SHOW.title, SHOW.subtitle + ' · ' + cls, ''];
   out.push('등장인물');
-  CAST_PICK.forEach(c => out.push('  ' + c.name + ' — ' + c.line));
+  CAST.forEach(c => out.push('  ' + c.name + ' — ' + c.line));
   out.push('');
   T.script.acts.forEach(a => {
     const w = a.work;
@@ -572,10 +731,8 @@ function openEditFromRoster(r) {
     ACTS.map(a => '<option value="' + a.no + '"' + (Number(r.group) === a.no ? ' selected' : '') + '>' +
       a.no + '모둠 · 제' + a.no + '막 ' + esc(a.title) + '</option>').join('');
   $('#edJob').innerHTML = JOBS.map(j => '<option value="' + j.key + '"' +
-    (r.job === j.key ? ' selected' : '') + '>' + esc(j.name) +
-    (j.optional ? ' (정원 초과 시)' : '') + '</option>').join('');
-  $('#edRole').innerHTML = CAST.filter(c => !c.retired || r.role === c.key)
-    .map(c => '<option value="' + c.key + '"' +
+    (r.job === j.key ? ' selected' : '') + '>' + esc(j.name) + '</option>').join('');
+  $('#edRole').innerHTML = CAST.map(c => '<option value="' + c.key + '"' +
     (r.role === c.key ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
   $('#editModal').hidden = false;
 }

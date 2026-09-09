@@ -11,7 +11,7 @@
 
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=1.6.0">
 </head>
 
 <body class="teacher">
@@ -44,7 +44,7 @@
         <button class="btn sm ghost" id="btnLogout">나가기</button>
       </div>
       <nav class="tabs" role="tablist">
-        <button class="tab" role="tab" data-tab="ctrl"   aria-selected="true">수업 통제</button>
+        <button class="tab" role="tab" data-tab="ctrl"   aria-selected="true">학급 · 공지</button>
         <button class="tab" role="tab" data-tab="status" aria-selected="false">모둠 현황</button>
         <button class="tab" role="tab" data-tab="script" aria-selected="false">합본 대본</button>
         <button class="tab" role="tab" data-tab="roster" aria-selected="false">명렬표</button>
@@ -55,47 +55,60 @@
 
   <main>
 
-    <!-- ---------- 수업 통제 ---------- -->
+    <!-- ---------- 학급 · 공지 ---------- -->
     <section class="panel" id="panel-ctrl" role="tabpanel">
       <div class="notice">
-        자물쇠가 <b>두 개</b>입니다. <b>입장</b>은 로그인 자체를, <b>제출</b>은 [우리 막 제출하기]를 막습니다.
-        입장이 닫히면 제출도 함께 닫힙니다. 학생이 쓰던 내용은 기기에 남습니다.
-      </div>
-
-      <div class="card">
-        <h2>한 번에 하기</h2>
-        <div class="btnrow">
-          <button class="btn primary" id="btnAllOpen">모든 학급 수업 시작</button>
-          <button class="btn" id="btnAllSubmit">모든 학급 제출 열기</button>
-          <button class="btn danger" id="btnAllClose">모든 학급 종료</button>
-        </div>
-        <p class="dim" style="margin-top:8px; font-size:.85rem">
-          [수업 시작]은 <span id="lenLesson">50</span>분, [제출 열기]는 <span id="lenSubmit">25</span>분 동안 열립니다.
-          시간은 teacher.js 맨 위 두 줄에서 바꿉니다.</p>
+        <b>입장과 제출은 늘 열려 있습니다.</b> 수행평가가 아니므로 수업 시간과 제출 시간을 따로 막지 않습니다.
+        학생은 아무 때나 들어와 쓰고, 다 되면 냅니다. 한 번 낸 뒤에도 고쳐서 다시 낼 수 있습니다.
       </div>
 
       <div class="tb-scroll">
         <table class="tb">
           <thead><tr>
-            <th>학급</th><th>입장</th><th>제출</th><th>진행</th><th>제출한 모둠</th><th>조작</th>
+            <th>학급</th><th>입장</th><th>제출</th><th>제출한 모둠</th><th>지금 걸린 공지</th>
           </tr></thead>
           <tbody id="ctrlBody"></tbody>
         </table>
       </div>
 
+      <div class="card" style="margin-top:16px">
+        <h2>공지</h2>
+        <p class="dim" style="font-size:.85rem; margin-bottom:10px">
+          여기 쓴 말이 학생 화면 맨 위 띠에 그대로 뜹니다.
+          학급 칸을 비워 두면 <b>전체</b> 줄에 쓴 말을 따릅니다.</p>
+        <div id="noticeBox"></div>
+      </div>
+
       <details class="card" style="margin-top:16px">
-        <summary style="cursor:pointer; font-weight:700">손으로 세밀하게 고치기</summary>
-        <div id="fineTune" style="margin-top:12px"></div>
+        <summary style="cursor:pointer; font-weight:700">학생이 들어오지 못할 때</summary>
+        <p class="dim" style="margin-top:10px; font-size:.9rem">
+          서버(Apps Script)가 아직 예전 버전이면 설정 시트에 걸어 두었던 잠금이 그대로 남아 있습니다.
+          아래 단추를 한 번 누르면 모든 학급이 마감 시각 없이 열립니다.
+          새 서버를 배포한 뒤에는 누르지 않아도 됩니다.</p>
+        <div class="btnrow" style="margin-top:10px">
+          <button class="btn primary" id="btnForceOpen">모든 학급 열림으로 맞추기</button>
+        </div>
       </details>
     </section>
 
     <!-- ---------- 모둠 현황 ---------- -->
     <section class="panel" id="panel-status" role="tabpanel" hidden>
-      <div class="row-wrap" style="margin-bottom:14px">
+      <div class="row-wrap" style="margin-bottom:10px">
         <label class="field"><span>학급</span>
           <select class="t-select" id="selClass"></select></label>
         <button class="btn" id="btnRefresh" style="align-self:flex-end">새로 고침</button>
-        <span class="dim" id="statusAt" style="align-self:center"></span>
+        <label class="live-chk" style="align-self:flex-end">
+          <input type="checkbox" id="chkLive" checked> 10초마다 저절로</label>
+        <span class="dim" id="statusAt" style="align-self:flex-end; padding-bottom:10px"></span>
+      </div>
+
+      <!-- ★ v1.6 — 자리 정리 -->
+      <div class="seat-tools">
+        <button class="btn" id="btnFixSeats">자리 자동으로 정리하기</button>
+        <button class="btn" id="btnAutoAssign">남은 자리에 자동 편성</button>
+        <span class="dim" style="font-size:.84rem">
+          겹쳐 앉은 학생을 빈자리로 옮기고, 아직 못 들어간 학생을 한 번에 배치합니다.
+          수업 시작 전에 미리 눌러 두면 첫 5분이 조용합니다.</span>
       </div>
 
       <div class="kpis" id="statusKpis"></div>
@@ -177,6 +190,8 @@
       <label class="field"><span>제작 역할</span><select class="t-select" id="edJob"></select></label>
       <label class="field"><span>배역</span><select class="t-select" id="edRole"></select></label>
     </div>
+    <!-- ★ v1.6 — 겹치면 저장하기 전에 여기에 뜹니다 -->
+    <div id="editWarn" class="edit-warn" hidden></div>
     <div class="btnrow" style="margin-top:14px">
       <button class="btn primary" id="btnSaveEdit">저장</button>
       <button class="btn danger" id="btnRemoveEdit">모둠에서 빼기</button>
@@ -184,10 +199,10 @@
   </div>
 </div>
 
-<script src="config.js"></script>
-<script src="story.js"></script>
-<script src="common.js"></script>
-<script src="teacher.js"></script>
+<script src="config.js?v=1.6.0"></script>
+<script src="story.js?v=1.6.0"></script>
+<script src="common.js?v=1.6.0"></script>
+<script src="teacher.js?v=1.6.0"></script>
 <script src="https://accounts.google.com/gsi/client?onload=onGsiLoad" async defer></script>
 </body>
 </html>

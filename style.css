@@ -1074,10 +1074,7 @@ body.exam .nowbar { border-top-color: #A3122A; }
 .chooser button[aria-pressed="true"] {
   background: var(--accent); color: var(--accent-in); border-color: transparent;
 }
-.chooser button[disabled] { opacity: .4; cursor: not-allowed; }
-.chooser button.taken     { text-decoration: line-through; }
-.chooser button.notyet    { border-style: dashed; }
-.chooser button .dim      { font-weight: 400; font-size: .78rem; }
+.chooser button[disabled] { opacity: .35; cursor: not-allowed; text-decoration: line-through; }
 
 /* 파일 올리기 ------------------------------------------------------------*/
 .uploadbox {
@@ -1261,40 +1258,86 @@ input, textarea, select { color: var(--text); }
   .script .sc-box { background: #F2F2F2 !important; }
 }
 
-/* 예시 보여 주기 ---------------------------------------------------------*/
-.samplewrap { margin-top: 14px; }
+/* ===========================================================================
+ *  16. 자리(정원) 표시 — 2026-09-09 (v1.6)
+ *
+ *  한 모둠은 다섯 명입니다. 이 구역은 '몇 명 찼는지'와 '겹쳤는지'를 보여 줍니다.
+ *  · 학생 화면 — 모둠 카드의 3/5 배지, 다 찬 모둠 잠금, [남은 자리 아무거나 받기]
+ *  · 교사 화면 — 모둠 카드의 인원 배지, 겹침 경고, 자리 정리 단추 줄, 모달 경고 상자
+ *  색만 바꾸고 싶으면 15번 구역의 변수를 고치세요. 여기는 모양만 정합니다.
+ * =========================================================================*/
 
-.hintbox {
-  background: var(--accent-soft); border-radius: var(--r);
-  padding: 10px 14px; margin-bottom: 10px; font-size: .9rem;
+/* ---- 인원 배지 3/5 -----------------------------------------------------*/
+.seat {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: .74rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .02em;
+  background: var(--card-3);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  vertical-align: middle;
 }
-.hintbox b { color: var(--accent); font-size: .82rem; letter-spacing: .03em; }
-.hintbox ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
-.hintbox li { margin-bottom: 2px; }
+.seat.near { background: var(--warn-soft);   color: var(--warn);   border-color: transparent; }
+.seat.full { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+.seat.over { background: var(--danger); color: #fff; border-color: transparent; }
 
-.sample {
-  border: 1px dashed var(--line); border-radius: var(--r);
-  background: var(--card-2);
+/* 교사 화면에서는 5/5 가 '제대로 찼다'는 뜻이라 초록으로 읽힙니다 */
+body.teacher .seat.full { background: var(--accent-soft); color: var(--accent); }
+
+/* ---- 학생: 다 찬 모둠은 눌리지 않습니다 --------------------------------*/
+.actcard[disabled],
+.actcard.taken {
+  opacity: .45;
+  cursor: not-allowed;
+  filter: grayscale(.35);
 }
-.sample > summary {
-  cursor: pointer; padding: 10px 14px; font-weight: 700; font-size: .92rem;
-  color: var(--muted); list-style: none;
+.actcard[disabled]:hover { background: var(--card); }
+
+/* ---- 학생: 또는 / 남은 자리 아무거나 받기 ------------------------------*/
+.seat-or {
+  display: flex; align-items: center; gap: 10px;
+  margin: 14px 0 10px;
+  color: var(--dim); font-size: .8rem;
 }
-.sample > summary::-webkit-details-marker { display: none; }
-.sample > summary::before { content: '▸ '; color: var(--accent); }
-.sample[open] > summary::before { content: '▾ '; }
-.sample > summary:hover { color: var(--text); }
-.sample-in { padding: 0 14px 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.seat-or::before, .seat-or::after {
+  content: ""; flex: 1 1 auto; height: 1px; background: var(--line);
+}
 
-.srow { display: grid; grid-template-columns: 110px 1fr; gap: 10px; margin-bottom: 6px; font-size: .92rem; }
-.srow .k { color: var(--dim); font-weight: 700; font-size: .82rem; }
-@media (max-width: 560px) { .srow { grid-template-columns: 1fr; gap: 0; } }
+/* ---- 교사: 자리 정리 단추 줄 -------------------------------------------*/
+.seat-tools {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 12px 14px; margin-bottom: 14px;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r); box-shadow: var(--shadow);
+}
+.seat-tools .dim { flex: 1 1 260px; line-height: 1.45; }
 
-.sample-in .sc-dir { color: var(--muted); font-style: italic; margin: 4px 0 8px 8px; }
-.sample-in .sc-say { display: grid; grid-template-columns: 62px 1fr; gap: 8px; margin-bottom: 5px; font-size: .92rem; }
-.sample-in .sc-say .n { font-weight: 700; }
-.sample-in .sc-num  { color: var(--accent); font-weight: 700; margin: 4px 0 8px; }
-.sample-in .sc-part { font-weight: 700; margin: 8px 0 2px; font-size: .88rem; }
-.sample-in .sc-lyr  { margin-left: 12px; font-size: .92rem; }
-.checkitem.soft     { background: var(--warn-soft); }
-.checkitem.soft .mk { color: var(--warn); }
+.live-chk {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: .86rem; color: var(--muted); white-space: nowrap;
+  padding-bottom: 10px;
+}
+.live-chk input { width: 16px; height: 16px; accent-color: var(--accent); }
+
+/* ---- 교사: 겹친 모둠 ---------------------------------------------------*/
+.card.seat-bad { border-left: 4px solid var(--danger); }
+.seat-warn {
+  margin: 6px 0 2px;
+  font-size: .86rem; font-weight: 600;
+  color: var(--danger);
+}
+.seat-warn .dim { font-weight: 400; }
+
+/* ---- 교사: 모달 안의 겹침 경고 -----------------------------------------*/
+.edit-warn {
+  margin-top: 12px; padding: 10px 12px;
+  background: var(--danger-soft); color: var(--danger);
+  border-radius: var(--r-sm); font-size: .88rem;
+}
+.edit-warn ul { margin: 6px 0 0; padding-left: 18px; }
+.edit-warn li { margin: 2px 0; }

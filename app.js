@@ -10,19 +10,21 @@
  *  서버가 하나로 합쳐 주기 때문에 서로의 글이 지워지지 않습니다.
  * ==========================================================================*/
 
-const APP_VERSION = 'student v1.5.0 (2026-09-08) 배역5';
+const APP_VERSION = 'student v1.6.0 (2026-09-09) 정원5';
 
 /* ---------------------------------------------------------------------------
  *  0. 지금 상태
  * -------------------------------------------------------------------------*/
 const S = {
   sid: '', name: '', cls: '', group: 0, job: '', role: '',
-  work: null, members: [], state: null, videos: [],
+  work: null, members: [], state: null, videos: [], videoForm: null,
   dirty: {}, lineOps: [], lyricOps: [],
   saving: false, lastSent: '', renderedRev: -1, tab: 'story',
   pollTimer: null, syncTimer: null, saveTimer: null
 };
-const JOIN = { group: 0, job: '', role: '' };
+/* ★ v1.6 — counts 는 여섯 모둠의 인원을 담습니다. timer 는 8초마다 그것을 새로 받습니다. */
+const JOIN = { group: 0, job: '', role: '', counts: null, timer: null, busy: false };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const lsKey = () => 'mus_' + S.cls + '_' + S.sid;
 
@@ -48,6 +50,7 @@ window.addEventListener('DOMContentLoaded', function () {
     $('#stepMe').classList.add('off'); $('#step2').classList.remove('off'); $('#inSid').focus();
   });
   $('#btnJoin').addEventListener('click', doJoin);
+  $('#btnJoinAny').addEventListener('click', doJoinAny);   /* v1.6 */
   bindApp();
   bindFiles();
 });
@@ -89,6 +92,7 @@ async function enter(sid, name, pw) {
   if (!res.ok) { gmsg('<span class="err">' + esc(errText(res)) + '</span>'); return; }
 
   S.sid = res.sid; S.name = res.name; S.cls = res.cls; S.state = res.state;
+  S.videoForm = res.videoForm || S.videoForm;
   S.group = res.group || 0; S.job = res.job || ''; S.role = res.role || '';
 
   if (!S.group || !S.job || !S.role) { openJoin(); return; }
@@ -104,86 +108,172 @@ function openJoin() {
   $('#join').classList.remove('hidden');
   $('#joinWho').innerHTML = esc(S.cls) + ' ' + esc(S.name) + ' · 먼저 우리 모둠과 내가 맡을 일을 고릅니다.';
 
+  /* ① 모둠(=막) 카드. 인원은 loadCounts 가 채웁니다. */
   $('#joinActs').innerHTML = ACTS.map(a =>
     '<button class="actcard" type="button" data-g="' + a.no + '" aria-pressed="false">' +
-      '<div class="an">' + a.no + '모둠 · 제' + a.no + '막</div>' +
+      '<div class="an">' + a.no + '모둠 · 제' + a.no + '막' +
+        '<span class="seat" data-seat="' + a.no + '">…</span></div>' +
       '<div class="at">' + esc(a.title) + '</div>' +
       '<div class="ap">' + esc(a.time) + '</div>' +
       '<div class="ax">♪ ' + esc(a.numberHint.title) + ' · ' + esc(a.numberHint.genre) + '</div>' +
     '</button>').join('');
   $$('#joinActs .actcard').forEach(b => b.addEventListener('click', () => {
+    if (b.disabled) return;
     JOIN.group = Number(b.dataset.g);
     $$('#joinActs .actcard').forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
-    loadMates();
+    paintTaken();
   }));
 
-  /* 학생 화면에는 기본 다섯 자리만 보입니다.
-     정원을 넘긴 학생은 선생님이 교사 화면에서 넣어 주십니다. */
-  $('#joinJobs').innerHTML = JOBS.filter(j => !j.optional).map(j =>
-    '<button type="button" data-j="' + j.key + '" aria-pressed="false">' +
-    j.icon + ' ' + esc(j.name) + '</button>').join('');
+  /* ② 제작 역할 — ★ v1.6: 학생이 고를 수 있는 다섯 자리만 보여 줍니다.
+     '공동 대본' 은 선생님이 넣어 주는 예비 자리라 여기에 없습니다. */
+  $('#joinJobs').innerHTML = STUDENT_JOBS.map(j =>
+    '<button type="button" data-j="' + j.key + '" aria-pressed="false">' + j.icon + ' ' + esc(j.name) + '</button>').join('');
   $$("#joinJobs button").forEach(b => b.addEventListener('click', () => {
+    if (b.disabled) return;
     JOIN.job = b.dataset.j;
     $$("#joinJobs button").forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
     $('#joinJobDuty').textContent = jobOf(JOIN.job) ? jobOf(JOIN.job).duty : '';
   }));
 
-  $('#joinRoles').innerHTML = CAST_PICK.map(c =>
+  /* ③ 배역 */
+  $('#joinRoles').innerHTML = CAST.map(c =>
     '<button type="button" data-r="' + c.key + '" aria-pressed="false">' + esc(c.name) + '</button>').join('');
   $$('#joinRoles button').forEach(b => b.addEventListener('click', () => {
+    if (b.disabled) return;
     JOIN.role = b.dataset.r;
     $$('#joinRoles button').forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
     const c = castOf(JOIN.role);
     $('#joinRoleLine').textContent = c ? c.line : '';
   }));
+
+  loadCounts(true);
+  clearInterval(JOIN.timer);
+  JOIN.timer = setInterval(() => loadCounts(false), (typeof SEAT_POLL_SECONDS === 'number' ? SEAT_POLL_SECONDS : 8) * 1000);
 }
 
-async function loadMates() {
-  if (!JOIN.group) return;
-  const res = await apiPost('groupState', { idToken: Auth.idToken, sid: S.sid, cls: S.cls, group: JOIN.group });
-  if (!res.ok) { $('#joinMates').innerHTML = ''; return; }
-  const taken = res.members || [];
-  $('#joinMates').innerHTML = taken.length
-    ? '<span class="dim" style="width:100%">이미 자리를 잡은 모둠원</span>' + taken.map(m => mateChip(m)).join('')
-    : '<span class="dim">아직 아무도 들어오지 않았습니다. 첫 번째입니다.</span>';
-  const core = JOBS.filter(j => !j.optional).map(j => j.key);
+function joinMsg(html, bad) {
+  $('#joinMsg').innerHTML = html ? (bad ? '<span class="err">' + html + '</span>' : html) : '';
+}
+
+/* ---------------------------------------------------------------------------
+ *  ★ v1.6 — 여섯 모둠의 인원을 한 번에 받아 옵니다. 8초마다 스스로 다시 받습니다.
+ *  다 찬 모둠은 눌리지 않게 잠급니다.
+ * -------------------------------------------------------------------------*/
+async function loadCounts(loud) {
+  if (loud) joinMsg('모둠 자리를 확인하는 중…');
+  const res = await apiPost('groupCounts', { idToken: Auth.idToken, sid: S.sid, cls: S.cls }, 15000);
+  if (!res.ok) { if (loud) joinMsg(esc(errText(res)), true); return; }
+  JOIN.counts = res;
+  if (loud) joinMsg('');
+  paintCounts();
+  paintTaken();
+}
+
+function paintCounts() {
+  const r = JOIN.counts;
+  if (!r) return;
+  const size = r.size || (typeof GROUP_SIZE === 'number' ? GROUP_SIZE : 5);
+  let left = 0;
+  r.groups.forEach(g => {
+    const tag = $('#joinActs .seat[data-seat="' + g.group + '"]');
+    if (tag) {
+      tag.textContent = g.n + '/' + size;
+      tag.className = 'seat' + (g.full ? ' full' : (g.n >= size - 1 ? ' near' : ''));
+    }
+    const card = $('#joinActs .actcard[data-g="' + g.group + '"]');
+    if (card) {
+      const mine = (g.members || []).some(m => m.sid === S.sid);
+      const lock = g.full && !mine;
+      card.disabled = lock;
+      card.classList.toggle('taken', lock);
+      if (lock && JOIN.group === g.group) {
+        JOIN.group = 0;
+        card.setAttribute('aria-pressed', 'false');
+        joinMsg('고르던 모둠이 방금 다 찼습니다. 다른 모둠을 골라 주세요.', true);
+      }
+    }
+    if (!g.full) left += (size - g.n);
+  });
+  $('#joinLeft').textContent = left ? ('지금 남은 자리 ' + left + '개') : '여섯 모둠이 모두 찼습니다';
+  $('#btnJoinAny').disabled = !left;
+}
+
+/** 고른 모둠에서 이미 찬 제작 역할·배역을 잠급니다. */
+function paintTaken() {
+  const r = JOIN.counts;
+  const size = (r && r.size) || (typeof GROUP_SIZE === 'number' ? GROUP_SIZE : 5);
+  const g = (r && JOIN.group) ? r.groups.find(x => x.group === JOIN.group) : null;
+  const mates = g ? (g.members || []).filter(m => m.sid !== S.sid) : [];
+
+  $('#joinMates').innerHTML = !JOIN.group
+    ? '<span class="dim">먼저 위에서 모둠을 고르세요.</span>'
+    : (mates.length
+      ? '<span class="dim" style="width:100%">이미 자리를 잡은 모둠원 ' + mates.length + ' / ' + size + '</span>' +
+        mates.map(m => mateChip(m)).join('')
+      : '<span class="dim">아직 아무도 들어오지 않았습니다. 첫 번째입니다.</span>');
 
   $$("#joinJobs button").forEach(b => {
-    const t = taken.some(m => m.job === b.dataset.j && m.sid !== S.sid);
+    const t = mates.some(m => m.job === b.dataset.j);
     b.disabled = t;
-    b.classList.toggle('taken', t);
-    b.title = t ? '이미 다른 모둠원이 맡았습니다' : '';
+    if (t && JOIN.job === b.dataset.j) { JOIN.job = ''; b.setAttribute('aria-pressed', 'false'); $('#joinJobDuty').textContent = ''; }
   });
   $$('#joinRoles button').forEach(b => {
-    const t = taken.some(m => m.role === b.dataset.r && m.sid !== S.sid);
+    const t = mates.some(m => m.role === b.dataset.r);
     b.disabled = t;
-    b.classList.toggle('taken', t);
+    if (t && JOIN.role === b.dataset.r) { JOIN.role = ''; b.setAttribute('aria-pressed', 'false'); $('#joinRoleLine').textContent = ''; }
   });
-
-  const left = core.filter(k => !taken.some(m => m.job === k && m.sid !== S.sid)).length;
-  $('#joinSeats').textContent = left === 0
-    ? '이 모둠은 ' + MEMBERS_PER_GROUP + '자리가 다 찼습니다. 다른 모둠을 고르세요.'
-    : '이 모둠에 남은 자리 ' + left + '개 · 정원 ' + MEMBERS_PER_GROUP + '명';
 }
 
 async function doJoin() {
-  if (!JOIN.group) { $('#joinMsg').innerHTML = '<span class="err">모둠을 고르세요.</span>'; return; }
-  if (!JOIN.job)   { $('#joinMsg').innerHTML = '<span class="err">제작 역할을 고르세요.</span>'; return; }
-  if (!JOIN.role)  { $('#joinMsg').innerHTML = '<span class="err">배역을 고르세요.</span>'; return; }
-  $('#joinMsg').textContent = '자리를 잡는 중…';
+  if (JOIN.busy) return;
+  if (!JOIN.group) { joinMsg('모둠을 고르세요.', true); return; }
+  if (!JOIN.job)   { joinMsg('제작 역할을 고르세요.', true); return; }
+  if (!JOIN.role)  { joinMsg('배역을 고르세요.', true); return; }
+  JOIN.busy = true; $('#btnJoin').disabled = true; $('#btnJoinAny').disabled = true;
+  joinMsg('자리를 잡는 중…');
+
   const res = await apiPost('groupJoin', {
     idToken: Auth.idToken, sid: S.sid, name: S.name,
     group: JOIN.group, job: JOIN.job, role: JOIN.role
-  });
+  }, 20000);
+
+  JOIN.busy = false; $('#btnJoin').disabled = false;
   if (!res.ok) {
-    const extra = res.error === 'JOB_TAKEN' ? ' (' + esc(res.message) + ' 학생이 맡았습니다)'
-                : res.error === 'ROLE_TAKEN' ? ' (' + esc(res.message) + ' 학생이 맡았습니다)' : '';
-    const msg = res.error === 'JOB_TAKEN' ? '그 제작 역할은 이미 찼습니다.'
-              : res.error === 'ROLE_TAKEN' ? '그 배역은 이미 찼습니다.' : errText(res);
-    $('#joinMsg').innerHTML = '<span class="err">' + esc(msg) + extra + '</span>';
-    loadMates();
+    const who = (res.error === 'JOB_TAKEN' || res.error === 'ROLE_TAKEN') && res.message
+      ? ' (' + esc(res.message) + ' 학생이 맡았습니다)' : '';
+    joinMsg(esc(errText(res)) + who, true);
+    await loadCounts(false);
     return;
   }
+  await finishJoin(res);
+}
+
+/* ---------------------------------------------------------------------------
+ *  ★ v1.6 — [남은 자리 아무거나 받기]
+ *  서버가 빈자리를 찾아 앉혀 줍니다. 다툼에서 지면 다음 빈자리로 스스로 다시 시도합니다.
+ * -------------------------------------------------------------------------*/
+async function doJoinAny() {
+  if (JOIN.busy) return;
+  JOIN.busy = true; $('#btnJoin').disabled = true; $('#btnJoinAny').disabled = true;
+  joinMsg('남은 자리를 찾는 중…');
+
+  let res = null;
+  for (let i = 0; i < 4; i++) {
+    res = await apiPost('groupJoinAny', { idToken: Auth.idToken, sid: S.sid, name: S.name }, 25000);
+    if (res.ok) break;
+    if (res.error !== 'BUSY' && res.error !== 'GROUP_FULL') break;
+    joinMsg('다른 친구가 먼저 앉았습니다. 다음 빈자리를 찾는 중… (' + (i + 2) + '번째)');
+    await sleep(700 + i * 600);
+  }
+
+  JOIN.busy = false; $('#btnJoin').disabled = false; $('#btnJoinAny').disabled = false;
+  if (!res || !res.ok) { joinMsg(esc(errText(res)), true); await loadCounts(false); return; }
+  toast(res.group + '모둠 · ' + jobName(res.job) + ' · ' + castName(res.role) + ' 자리를 받았습니다', 'ok', 4500);
+  await finishJoin(res);
+}
+
+async function finishJoin(res) {
+  clearInterval(JOIN.timer); JOIN.timer = null;
   S.group = res.group; S.job = res.job; S.role = res.role;
   $('#join').classList.add('hidden');
   await startApp();
@@ -291,6 +381,7 @@ async function sync(loud) {
   if (!res.ok) { if (loud) toast(errText(res), 'bad'); setSave('연결 안 됨'); return; }
   S.state = res.state; S.members = res.members || [];
   S.videos = res.videos || [];
+  S.videoForm = res.videoForm || S.videoForm;
   mergeWork(res.work);
   paintStatus();
   paintAll();
@@ -370,19 +461,13 @@ function paintStatus() {
   const bar = $('#statusBar');
   if (!S.state) { bar.className = 'statusbar wait'; bar.textContent = '서버 상태를 확인하는 중…'; return; }
   const st = S.state;
-  let cls = 'wait', txt = '';
-  if (st.entry !== 'open') {
+  let cls = 'open', txt = '언제든 쓰고, 다 되면 [우리 막 제출하기]를 누르세요. 낸 뒤에도 고칠 수 있습니다.';
+  if (st.entry !== 'open') {          /* 서버가 아직 예전 버전일 때만 나옵니다 */
     cls = 'closed';
-    txt = st.entry === 'before' ? '수업이 아직 시작되지 않았습니다.'
-        : st.entry === 'after'  ? '수업 시간이 끝났습니다. 쓴 내용은 남아 있습니다.'
-        : '선생님이 수업을 열어 주실 때까지 기다려 주세요.';
-  } else if (st.submit === 'open') {
-    cls = 'open';
-    const left = st.submitEndsAt ? (new Date(st.submitEndsAt) - new Date(st.now || Date.now())) : 0;
-    txt = '제출 열림' + (left > 0 ? ' · 남은 시간 ' + fmtLeft(left) : '');
-  } else {
+    txt = '아직 들어올 수 없습니다. 선생님께 알려 주세요.';
+  } else if (st.submit !== 'open') {
     cls = 'wait';
-    txt = '수업 중 · 제출은 아직 닫혀 있습니다. 계속 써 두세요.';
+    txt = '지금은 쓰기만 됩니다. 계속 써 두세요.';
   }
   if (st.notice) txt += '  |  ' + st.notice;
   bar.className = 'statusbar ' + cls;
@@ -404,20 +489,11 @@ function paintAll() {
   paintArrange();
   paintFiles();
   paintVideos();
-  paintSamples();
   applyLocks();          /* 잠금은 다시 그린 뒤 마지막에 한 번 */
   paintProgress();
   $('#nowName').textContent = '제' + (S.work.actNo || S.group) + '막 · ' + (S.work.actTitle || '(제목 없음)');
   $('#nowThumb').textContent = String(S.work.actNo || S.group);
   if (S.tab === 'out') { renderChecks(); renderPreview(); }
-}
-
-/** 고를 수 있는 배역. 우리 모둠이 이미 옛 배역을 쓰고 있으면 그것도 함께 보여 줍니다. */
-function pickCast() {
-  const used = {};
-  (S.members || []).forEach(m => { used[m.role] = true; });
-  Object.keys((S.work && S.work.castMap) || {}).forEach(k => { used[k] = true; });
-  return CAST.filter(c => !c.retired || used[c.key]);
 }
 
 function canEdit(field) {
@@ -470,6 +546,8 @@ function paintActFields() {
   if (a) {
     $('#actAsk').textContent = a.ask;
     $('#actBeat').textContent = a.beat;
+    $('#sampleDialogue').textContent = a.sample.dialogue;
+    $('#sampleLyric').textContent = a.sample.lyric.split(' / ').join('\n');
   }
 }
 function setVal(sel, v) {
@@ -508,11 +586,11 @@ function paintCastMap() {
     '<option value="' + esc(x.sid) + '"' + (map[m] === x.sid ? ' selected' : '') + '>' +
     esc(x.name) + '</option>').join('');
   const a = actOf(S.work.actNo || S.group);
-  const list = a ? a.onstage : CAST_PICK.map(c => c.key);
+  const list = a ? a.onstage : CAST.map(c => c.key);
   $('#castMap').innerHTML =
     '<p class="dim" style="font-size:.85rem">이 막에 나오는 인물: ' +
       list.map(k => esc(castName(k))).join(', ') + '</p>' +
-    '<div class="row-wrap">' + pickCast().map(c =>
+    '<div class="row-wrap">' + CAST.map(c =>
       '<label class="field" style="flex:1 1 160px">' +
         '<span><span class="sw" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' +
           c.color + ';margin-right:5px"></span>' + esc(c.name) +
@@ -532,7 +610,7 @@ function paintCastMap() {
 /* ---- 대사·지문 ---------------------------------------------------------*/
 function myLine(x) {
   if (x.by === S.sid) return true;
-  if (x.kind === 'dir' && (S.job === 'script' || S.job === 'script2')) return true;
+  if (x.kind === 'dir' && S.job === 'script') return true;
   if (x.kind === 'say' && x.who === S.role) return true;
   return false;
 }
@@ -545,12 +623,12 @@ function paintLines() {
     : '<p class="dim">아직 한 줄도 없습니다. 아래에서 지문이나 대사를 넣어 보세요.</p>';
   wireLines(box, 'line');
 
-  const canDir = (S.job === 'script' || S.job === 'script2');
+  const canDir = (S.job === 'script');
   const myCast = castName(S.role);
   $('#addWho').innerHTML =
     (canDir ? '<option value="__dir">지문 (무대 지시)</option>' : '') +
     '<option value="' + esc(S.role) + '" selected>' + esc(myCast) + ' 대사</option>' +
-    (canDir ? pickCast().filter(c => c.key !== S.role).map(c =>
+    (canDir ? CAST.filter(c => c.key !== S.role).map(c =>
       '<option value="' + c.key + '">' + esc(c.name) + ' 대사</option>').join('') : '');
   $('#sceneHint').textContent = canDir
     ? '대본 리더는 지문과 모든 인물의 대사를 넣을 수 있습니다. 다만 다른 사람이 쓴 줄은 고칠 수 없습니다.'
@@ -575,7 +653,7 @@ function lineHtml(x, i, n) {
     opsHtml(mine, i, n, author) + '</div>';
 }
 function opsHtml(mine, i, n, author) {
-  const canOrder = (S.job === 'script' || S.job === 'script2');
+  const canOrder = (S.job === 'script');
   return '<div class="ops no-print">' +
     (canOrder && i > 0     ? '<button class="mini" data-op="up"   title="위로">▲</button>' : '') +
     (canOrder && i < n - 1 ? '<button class="mini" data-op="down" title="아래로">▼</button>' : '') +
@@ -674,7 +752,7 @@ function paintLyrics() {
 
   $('#addLyricWho').innerHTML =
     '<option value="">전원 (합창)</option>' +
-    pickCast().map(c => '<option value="' + c.key + '">' + esc(c.name) + '</option>').join('');
+    CAST.map(c => '<option value="' + c.key + '">' + esc(c.name) + '</option>').join('');
   $('#addLyricWho').disabled = !ok;
   $('#addLyricText').disabled = !ok;
   $('#btnAddLyric').disabled = !ok;
@@ -760,26 +838,21 @@ function checkState() {
     { k: '연출 노트',      ok: (w.staging || '').trim().length >= 20, now: (w.staging || '').length, need: 20, unit: '자' },
     { k: '모둠원 참여',    ok: S.members.length > 0 && idle.length === 0,
       now: S.members.length - idle.length, need: S.members.length || 5, unit: '명',
-      extra: idle.length ? idle.map(m => m.name).join(', ') + ' 아직 안 씀' : '' },
-    { k: '예시를 우리 것으로', ok: samePasteCount() === 0, soft: true,
-      now: samePasteCount(), need: 0, unit: '곳',
-      extra: samePasteCount() ? '예시 문장이 그대로 남아 있습니다. 우리 말로 고쳐 쓰세요' : '' }
+      extra: idle.length ? idle.map(m => m.name).join(', ') + ' 아직 안 씀' : '' }
   ];
 }
 function paintProgress() {
-  const list = checkState().filter(x => !x.soft);
+  const list = checkState();
   const done = list.filter(x => x.ok).length;
   $('#pgFill').style.width = Math.round(done / list.length * 100) + '%';
   $('#pgTxt').textContent = list.length + '개 중 ' + done + '개 완료';
 }
 function renderChecks() {
   $('#checkList').innerHTML = checkState().map(x =>
-    '<div class="checkitem ' + (x.ok ? 'ok' : (x.soft ? 'soft' : 'no')) + '">' +
-      '<span class="mk">' + (x.ok ? '●' : (x.soft ? '△' : '○')) + '</span>' +
+    '<div class="checkitem ' + (x.ok ? 'ok' : 'no') + '">' +
+      '<span class="mk">' + (x.ok ? '●' : '○') + '</span>' +
       '<span>' + esc(x.k) + (x.extra ? ' <span class="dim">— ' + esc(x.extra) + '</span>' : '') + '</span>' +
-      '<span class="rest">' + (x.need === 0 && x.unit === '곳'
-        ? (x.ok ? '모두 고쳤습니다' : x.now + '곳 그대로')
-        : x.unit
+      '<span class="rest">' + (x.unit
         ? x.now + ' / ' + x.need + x.unit
         : (x.ok ? '적었습니다' : '아직 비어 있습니다')) + '</span>' +
     '</div>').join('');
@@ -820,7 +893,7 @@ function scriptHtml(w, members) {
   });
   if (w.structure) h += '<div class="r"><span class="k">넘버 구성</span><span>' + esc(w.structure) + '</span></div>';
   if (w.staging)   h += '<div class="r"><span class="k">연출 노트</span><span>' + esc(w.staging) + '</span></div>';
-  const castLine = CAST.filter(c => cm[c.key]).map(c => c.name + ' — ' + nameOf(c.key)).join(' · ');  /* 옛 배역도 보여 줍니다 */
+  const castLine = CAST.filter(c => cm[c.key]).map(c => c.name + ' — ' + nameOf(c.key)).join(' · ');
   if (castLine) h += '<div class="r"><span class="k">배역</span><span>' + esc(castLine) + '</span></div>';
   h += '</div></div>';
   return h;
@@ -835,18 +908,13 @@ async function doSubmit() {
     toast('제출은 발표 리더가 합니다. 발표 리더에게 말해 주세요.', 'warn', 4000);
     return;
   }
-  const all = checkState();
-  const miss = all.filter(x => !x.ok && !x.soft);
+  const miss = checkState().filter(x => !x.ok);
   if (miss.length) {
     toast('아직 ' + miss.length + '개 항목이 모자랍니다', 'bad', 4000);
     $('#submitHint').innerHTML = '<span class="err">모자란 것: ' +
       esc(miss.map(x => x.k).join(', ')) + '</span>';
     return;
   }
-  const same = samePasteCount();
-  if (same > 0 && !confirm(
-      '예시 문장이 ' + same + '곳 그대로 남아 있습니다.\n' +
-      '예시를 그대로 낸 것은 우리 작품이 아닙니다.\n\n그래도 제출할까요?')) return;
   if (!confirm('우리 막을 제출할까요?\n제출하면 선생님이 열어 주시기 전까지 고칠 수 없습니다.')) return;
 
   await save(false);
@@ -912,13 +980,13 @@ function exportText() {
 
 function renderStory() {
   $('#castList').innerHTML =
-    '<div class="mates" style="margin-top:10px">' + CAST_PICK.map(c =>
+    '<div class="mates" style="margin-top:10px">' + CAST.map(c =>
       '<span class="mate' + (c.key === S.role ? ' me' : '') + '">' +
         '<span class="sw" style="background:' + c.color + '"></span>' +
         '<span class="nm">' + esc(c.name) + '</span>' +
         (c.key === S.role ? '<span class="jb">← 내 배역</span>' : '') +
       '</span>').join('') + '</div>' +
-    '<ul class="think" style="margin-top:12px">' + CAST_PICK.map(c =>
+    '<ul class="think" style="margin-top:12px">' + CAST.map(c =>
       '<li><b>' + esc(c.name) + '</b> — ' + esc(c.line) + '</li>').join('') + '</ul>';
 
   $('#actMap').innerHTML = ACTS.map(a => {
@@ -1104,16 +1172,26 @@ async function deleteFile(fid) {
   toast('지웠습니다', 'ok');
 }
 
-/* ---- 동영상 폼 ---------------------------------------------------------*/
+/* ---- 동영상 폼 ---------------------------------------------------------
+ *  서버(Apps Script)가 알려 준 폼을 먼저 씁니다.
+ *  스프레드시트 메뉴에서 [영상 제출 폼 만들기] 를 한 번 실행하면 여기로 내려옵니다.
+ *  config.js 의 VIDEO_FORM 은 손으로 넣고 싶을 때만 쓰는 예비입니다.
+ * ------------------------------------------------------------------------*/
+function vform() {
+  if (S.videoForm && S.videoForm.url) return S.videoForm;
+  return (typeof VIDEO_FORM !== 'undefined') ? VIDEO_FORM : null;
+}
+
 function videoFormUrl() {
-  if (!VIDEO_FORM || !VIDEO_FORM.url) return '';
-  const u = VIDEO_FORM.url.replace(/\?.*$/, '');
+  const VF = vform();
+  if (!VF || !VF.url) return '';
+  const u = VF.url.replace(/\?.*$/, '');
   const p = [];
   const add = (k, v) => { if (k && v) p.push(encodeURIComponent(k) + '=' + encodeURIComponent(v)); };
-  add(VIDEO_FORM.entryClass, S.cls);
-  add(VIDEO_FORM.entryGroup, S.group + '모둠');
-  add(VIDEO_FORM.entrySid, S.sid);
-  add(VIDEO_FORM.entryName, S.name);
+  add(VF.entryClass, S.cls);
+  add(VF.entryGroup, S.group + '모둠');
+  add(VF.entrySid, S.sid);
+  add(VF.entryName, S.name);
   return u + (p.length ? '?usp=pp_url&' + p.join('&') : '');
 }
 
@@ -1126,7 +1204,8 @@ function openVideoForm() {
 }
 
 function paintVideos() {
-  const has = !!(VIDEO_FORM && VIDEO_FORM.url);
+  const VF = vform();
+  const has = !!(VF && VF.url);
   const card = $('#videoCard'), off = $('#videoOff');
   if (card) card.classList.toggle('hidden', !has);
   if (off) off.classList.toggle('hidden', has);
@@ -1143,204 +1222,4 @@ function paintVideos() {
           '<span class="at">' + esc(v.at || '') + '</span>' +
         '</div>').join('')
     : '<p class="dim">아직 낸 영상이 없습니다.</p>';
-}
-
-/* ===========================================================================
- *  8. 예시 보여 주기 — 빈 화면 앞에서 멈추지 않도록
- *
- *  각 담당 칸 옆에 그 막의 예시(활동지·예시 대본에서 가져온 것)를 붙이고,
- *  [이대로 넣어 보기] 한 번이면 칸이 채워집니다. 예시는 일부러 모자라게
- *  담아 두었습니다 — 지문 1줄·대사 4줄·가사 5줄. 완성 검사(2줄·12줄·8줄)를
- *  통과하려면 학생이 반드시 이어 써야 합니다.
- * =========================================================================*/
-
-/** 지금 우리 막의 예시 묶음 */
-function mySample() {
-  const a = actOf(S.work && S.work.actNo ? S.work.actNo : S.group);
-  return (a && a.sample) ? a.sample : null;
-}
-
-/** 예시 카드 하나 그리기. body 는 미리 만들어 넘깁니다. */
-function sampleBox(id, title, bodyHtml, canFill) {
-  return '<details class="sample" id="sb-' + id + '">' +
-    '<summary>📖 예시 보기 — ' + esc(title) + '</summary>' +
-    '<div class="sample-in">' + bodyHtml +
-      (canFill
-        ? '<div class="btnrow no-print" style="margin-top:10px">' +
-            '<button class="btn sm primary" data-fill="' + id + '">이대로 넣어 보기</button>' +
-            '<span class="dim" style="align-self:center; font-size:.82rem">넣은 뒤 우리 이야기로 고쳐 쓰세요</span>' +
-          '</div>'
-        : '') +
-    '</div></details>';
-}
-
-function hintList(jobKey) {
-  const j = jobOf(jobKey);
-  if (!j || !j.hint) return '';
-  return '<div class="hintbox"><b>생각 열기</b><ul>' +
-    j.hint.map(h => '<li>' + esc(h) + '</li>').join('') + '</ul></div>';
-}
-
-/** 담당 카드마다 예시와 안내를 붙입니다. paintAll 마지막에 부릅니다. */
-function paintSamples() {
-  const sp = mySample();
-  if (!sp) return;
-  const a = actOf(S.work.actNo || S.group) || {};
-
-  put('#sampleAct', hintList('script') + sampleBox('act', '제' + a.no + '막의 얼굴',
-    row('막 제목', a.title) + row('시간대', a.time) + row('무대 배경', a.place) +
-    row('장면 이름', sp.scene) + row('한 줄 줄거리', sp.logline),
-    canEdit('actTitle')));
-
-  put('#sampleScene', hintList('script') + sampleBox('scene', '지문과 대사',
-    '<div class="sc-dir">' + esc(sp.dir[0]) + '</div>' +
-    sp.lines.map(x => '<div class="sc-say"><span class="n">' + esc(castName(x.who)) +
-      '</span><span>' + esc(x.text) + '</span></div>').join('') +
-    '<p class="dim" style="margin-top:8px; font-size:.82rem">예시는 여기까지입니다. ' +
-    '제출하려면 지문 2줄·대사 12줄이 필요하니 <b>이어서 우리 이야기를 쓰세요.</b></p>',
-    true));
-
-  put('#sampleLyric', hintList('lyric') + sampleBox('lyric', '넘버 제목과 가사',
-    '<div class="sc-num">♪ ' + esc(sp.numberTitle) + '</div>' +
-    sp.lyrics.map((x, i) => {
-      const head = (i === 0 || sp.lyrics[i - 1].who !== x.who);
-      return (head ? '<div class="sc-part">[' + esc(x.who ? castName(x.who) : '전원 합창') + ']</div>' : '') +
-             '<div class="sc-lyr">' + esc(x.text) + '</div>';
-    }).join('') +
-    '<p class="dim" style="margin-top:8px; font-size:.82rem">제출하려면 가사 8줄이 필요합니다.</p>',
-    canEdit('numberTitle')));
-
-  put('#samplePrompt', hintList('compose') + sampleBox('prompt', 'Suno 프롬프트 네 칸',
-    PROMPT_FIELDS.map(f => row(f.label, sp.prompt[f.key])).join(''),
-    canEdit('prompt')));
-
-  put('#sampleArrange', hintList('arrange') + sampleBox('arrange', '넘버 구성과 데모 고르기',
-    row('구성', '전주 8마디 기타 → 벌스1 ' + castName((sp.lines[0] || {}).who) +
-        ' 혼자 → 프리코러스 한 명 합류 → 후렴 전원') +
-    row('데모 A', '빠르고 밝지만 가사가 묻힌다') +
-    row('데모 B', '느리지만 후렴이 또렷하다') +
-    row('고른 이유', '이 막의 감정에는 후렴이 또렷한 B가 더 맞아서'),
-    canEdit('structure')));
-
-  put('#sampleStage', hintList('stage') + sampleBox('stage', '연출 노트',
-    row('예시', '노래 시작과 함께 앙상블이 무대 뒤에서 가방을 메고 등장. ' +
-        castName((sp.lines[0] || {}).who) + '에게 핀조명. 후렴에서 전체 조명. 소품 — 메모지 한 장.'),
-    canEdit('staging')));
-
-  $$('[data-fill]').forEach(b => b.addEventListener('click', () => fillSample(b.dataset.fill)));
-}
-
-function put(sel, html) { const el = $(sel); if (el) el.innerHTML = html; }
-function row(k, v) {
-  return '<div class="srow"><span class="k">' + esc(k) + '</span><span>' + esc(v || '') + '</span></div>';
-}
-
-/* ---- 예시를 칸에 넣기 -------------------------------------------------*/
-function fillSample(which) {
-  const sp = mySample();
-  const a = actOf(S.work.actNo || S.group) || {};
-  if (!sp) return;
-
-  if (which === 'act') {
-    if (!canEdit('actTitle')) { toast('이 칸은 대본 리더가 씁니다', 'warn'); return; }
-    if (!askOverwrite([S.work.actTitle, S.work.actPlace, S.work.sceneTitle, S.work.logline])) return;
-    setField('actTitle', a.title, '#fActTitle');
-    setField('actTime', a.time, '#fActTime');
-    setField('actPlace', a.place, '#fActPlace');
-    setField('sceneTitle', sp.scene, '#fSceneTitle');
-    setField('logline', sp.logline, '#fLogline');
-
-  } else if (which === 'scene') {
-    const canDir = (S.job === 'script' || S.job === 'script2');
-    let added = 0;
-    if (canDir) {
-      sp.dir.forEach(t => { addOp('lineOps', 'lines', { kind: 'dir', who: '', text: t }); added++; });
-    }
-    sp.lines.forEach(x => {
-      /* 대본 리더는 모두, 나머지는 자기 배역 줄만 */
-      if (!canDir && x.who !== S.role) return;
-      addOp('lineOps', 'lines', { kind: 'say', who: x.who, text: x.text });
-      added++;
-    });
-    if (!added) { toast('내 배역(' + castName(S.role) + ')의 예시 대사가 이 막에는 없습니다. 직접 써 보세요.', 'warn', 5000); return; }
-    paintLines();
-
-  } else if (which === 'lyric') {
-    if (S.job !== 'lyric') { toast('가사는 작사 리더가 씁니다', 'warn'); return; }
-    if (!askOverwrite([S.work.numberTitle])) return;
-    setField('numberTitle', sp.numberTitle, '#fNumberTitle');
-    sp.lyrics.forEach(x => addOp('lyricOps', 'lyrics', { kind: 'lyric', who: x.who, text: x.text }));
-    paintLyrics();
-
-  } else if (which === 'prompt') {
-    if (!canEdit('prompt')) { toast('이 칸은 작곡 리더가 씁니다', 'warn'); return; }
-    const p = S.work.prompt || {};
-    if (!askOverwrite([p.genre, p.mood, p.inst, p.vocal])) return;
-    S.work.prompt = Object.assign({}, sp.prompt);
-    S.dirty.prompt = S.work.prompt;
-    paintPrompt();
-
-  } else if (which === 'arrange') {
-    if (!canEdit('structure')) { toast('이 칸은 편곡 리더가 씁니다', 'warn'); return; }
-    if (!askOverwrite([S.work.structure])) return;
-    setField('structure',
-      '전주 8마디 기타 → 벌스1 ' + castName((sp.lines[0] || {}).who) +
-      ' 혼자 → 프리코러스 한 명 합류 → 후렴 전원', '#fStructure');
-    S.work.demo = Object.assign({}, S.work.demo || {}, {
-      a: '빠르고 밝지만 가사가 묻힌다',
-      b: '느리지만 후렴이 또렷하다'
-    });
-    S.dirty.demo = S.work.demo;
-    paintArrange();
-
-  } else if (which === 'stage') {
-    if (!canEdit('staging')) { toast('이 칸은 발표 리더가 씁니다', 'warn'); return; }
-    if (!askOverwrite([S.work.staging])) return;
-    setField('staging',
-      '노래 시작과 함께 앙상블이 무대 뒤에서 가방을 메고 등장. ' +
-      castName((sp.lines[0] || {}).who) + '에게 핀조명. 후렴에서 전체 조명. 소품 — 메모지 한 장.',
-      '#fStaging');
-  }
-
-  paintProgress();
-  touch();
-  toast('예시를 넣었습니다. 이제 우리 이야기로 고쳐 쓰세요.', 'ok', 5000);
-}
-
-function setField(key, val, sel) {
-  S.work[key] = val;
-  S.dirty[key] = val;
-  const el = $(sel); if (el) el.value = val;
-}
-function addOp(opsKey, listKey, o) {
-  const op = { op: 'add', id: newId(), kind: o.kind, who: o.who, text: o.text };
-  S.work[listKey] = (S.work[listKey] || []).concat([opToLine(op)]);
-  S[opsKey].push(op);
-}
-function askOverwrite(vals) {
-  const has = vals.some(v => String(v || '').trim().length > 0);
-  if (!has) return true;
-  return confirm('이미 쓴 내용이 있습니다. 예시로 덮어쓸까요?');
-}
-
-/* ---- 예시를 그대로 두지 않았는지 ---------------------------------------*/
-function samePasteCount() {
-  const sp = mySample();
-  if (!sp || !S.work) return 0;
-  const w = S.work;
-  let n = 0;
-  const eq = (a, b) => String(a || '').trim() === String(b || '').trim() && String(a || '').trim() !== '';
-  const a = actOf(w.actNo || S.group) || {};
-  if (eq(w.actPlace, a.place)) n++;
-  if (eq(w.sceneTitle, sp.scene)) n++;
-  if (eq(w.logline, sp.logline)) n++;
-  if (eq(w.numberTitle, sp.numberTitle)) n++;
-  (w.lines || []).forEach(x => {
-    if (sp.dir.some(t => eq(x.text, t))) n++;
-    if (sp.lines.some(t => eq(x.text, t.text))) n++;
-  });
-  (w.lyrics || []).forEach(x => { if (sp.lyrics.some(t => eq(x.text, t.text))) n++; });
-  const p = w.prompt || {};
-  PROMPT_FIELDS.forEach(f => { if (eq(p[f.key], sp.prompt[f.key])) n++; });
-  return n;
 }

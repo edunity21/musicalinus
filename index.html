@@ -11,7 +11,7 @@
 
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=1.6.0">
 </head>
 
 <body>
@@ -68,22 +68,28 @@
     <h1>모둠과 역할 정하기</h1>
     <p class="sub" id="joinWho">먼저 우리 모둠과, 내가 맡을 일을 고릅니다.</p>
 
-    <label style="margin-top:6px">① 우리 모둠 <span class="dim" style="font-weight:400">— 모둠 번호가 곧 우리가 맡을 막 번호입니다</span></label>
+    <label style="margin-top:6px">① 우리 모둠 <span class="dim" style="font-weight:400">— 모둠 번호가 곧 우리가 맡을 막 번호입니다. 한 모둠은 다섯 명입니다</span></label>
     <div class="actgrid" id="joinActs" style="margin-bottom:8px"></div>
+    <p class="dim" id="joinLeft" style="font-size:.86rem; margin-bottom:8px">자리를 확인하는 중…</p>
 
     <label>② 내가 맡을 제작 역할 <span class="dim" style="font-weight:400">— 한 모둠에 한 명씩, 다섯 자리</span></label>
-    <p class="dim" id="joinSeats" style="margin:0 0 8px; font-size:.86rem">모둠을 먼저 고르세요.</p>
     <div class="chooser" id="joinJobs" style="margin-bottom:8px"></div>
     <p class="dim" id="joinJobDuty" style="min-height:20px; font-size:.86rem"></p>
 
-    <label>③ 내가 맡을 배역 <span class="dim" style="font-weight:400">— 이 인물의 대사를 내가 씁니다. 다섯 인물을 한 명씩 나눠 맡습니다</span></label>
+    <label>③ 내가 맡을 배역 <span class="dim" style="font-weight:400">— 이 인물의 대사를 내가 씁니다. 다섯 인물 가운데 하나</span></label>
     <div class="chooser" id="joinRoles" style="margin-bottom:8px"></div>
     <p class="dim" id="joinRoleLine" style="min-height:20px; font-size:.86rem"></p>
 
     <div class="mates" id="joinMates" style="margin:14px 0"></div>
     <div class="gate-msg" id="joinMsg"></div>
     <button class="btn primary block" id="btnJoin" style="margin-top:8px">이 자리로 들어가기</button>
-    <p class="dim center" style="margin-top:10px; font-size:.8rem">
+
+    <div class="seat-or"><span>또는</span></div>
+    <button class="btn block" id="btnJoinAny">남은 자리 아무거나 받기</button>
+    <p class="dim center" style="margin-top:6px; font-size:.8rem">
+      고르기 어렵거나 자꾸 겹치면 이 단추를 누르세요. 빈자리를 하나 받아 바로 시작합니다.</p>
+
+    <p class="dim center" style="margin-top:12px; font-size:.8rem">
       잘못 골랐으면 선생님께 말씀드리면 바꿔 주십니다.</p>
   </div>
 </div>
@@ -183,7 +189,6 @@
             <input class="t-input" id="fLogline" maxlength="80" placeholder="이 막에서 무슨 일이 일어나는지 한 문장"></label>
         </div>
         <p class="lockmsg" id="lockAct"></p>
-        <div id="sampleAct" class="samplewrap"></div>
       </div>
 
       <div class="card owned" id="cardCast">
@@ -212,8 +217,6 @@
 
       <div class="mates" id="sceneMates" style="margin-bottom:14px"></div>
 
-      <div id="sampleScene" class="samplewrap"></div>
-
       <div class="linelist" id="lineList"></div>
 
       <div class="addrow no-print">
@@ -223,6 +226,11 @@
         <button class="btn primary" id="btnAddLine">넣기</button>
       </div>
       <p class="dim" style="margin-top:8px; font-size:.84rem" id="sceneHint"></p>
+
+      <details class="card" style="margin-top:16px">
+        <summary style="cursor:pointer; font-weight:700">예시 보기 — 이 정도 결로 씁니다 (베끼지 않습니다)</summary>
+        <p class="muted" id="sampleDialogue" style="margin-top:10px"></p>
+      </details>
 
       <div class="actionbar no-print">
         <button class="btn primary" id="btnSaveScene">저장하기</button>
@@ -251,7 +259,6 @@
           파트를 <b>[지후]</b>처럼 정해 두면 Suno 프롬프트의 보컬 구성과 맞출 수 있습니다.
           같은 파트가 이어지면 앞줄만 표시됩니다.</p>
         <p class="lockmsg" id="lockLyric"></p>
-        <div id="sampleLyric" class="samplewrap"></div>
       </div>
 
       <div class="card owned" id="cardPrompt">
@@ -267,7 +274,6 @@
           </div>
         </div>
         <p class="lockmsg" id="lockPrompt"></p>
-        <div id="samplePrompt" class="samplewrap"></div>
       </div>
 
       <div class="card owned" id="cardArrange">
@@ -293,7 +299,6 @@
             <input class="t-input" id="fDemoLink" maxlength="300" placeholder="https://suno.com/..."></label>
         </div>
         <p class="lockmsg" id="lockArrange"></p>
-        <div id="sampleArrange" class="samplewrap"></div>
       </div>
 
       <div class="card owned" id="cardStage">
@@ -303,8 +308,12 @@
           <textarea class="t-input" id="fStaging" style="min-height:110px; font-family:inherit; font-size:.95rem"
             placeholder="예) 노래 시작과 함께 앙상블이 무대 뒤에서 가방을 메고 등장. 지후에게 핀조명. 후렴에서 전체 조명."></textarea></label>
         <p class="lockmsg" id="lockStage"></p>
-        <div id="sampleStage" class="samplewrap"></div>
       </div>
+
+      <details class="card">
+        <summary style="cursor:pointer; font-weight:700">예시 보기 — 이 정도 결로 씁니다 (베끼지 않습니다)</summary>
+        <p class="muted" id="sampleLyric" style="margin-top:10px; white-space:pre-line"></p>
+      </details>
 
       <div class="actionbar no-print">
         <button class="btn primary" id="btnSaveNumber">저장하기</button>
@@ -400,10 +409,10 @@
   </div>
 </div>
 
-<script src="config.js"></script>
-<script src="story.js"></script>
-<script src="common.js"></script>
-<script src="app.js"></script>
+<script src="config.js?v=1.6.0"></script>
+<script src="story.js?v=1.6.0"></script>
+<script src="common.js?v=1.6.0"></script>
+<script src="app.js?v=1.6.0"></script>
 <script src="https://accounts.google.com/gsi/client?onload=onGsiLoad" async defer></script>
 </body>
 </html>
