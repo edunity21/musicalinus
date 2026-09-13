@@ -15,7 +15,7 @@
  *    학생·교사 화면이 같이 바뀝니다.
  * ==========================================================================*/
 
-const STORY_VERSION = 'story v2.0.1 (2026-09-13) 제작공정';
+const STORY_VERSION = 'story v2.1.0 (2026-09-13) 화면녹음';
 
 /* 작품 기본값. 교사 화면에서 학급마다 바꿀 수 있습니다. */
 const SHOW = {
@@ -397,9 +397,9 @@ const STAGES = [
     ]
   },
   {
-    key: 's6', no: 6, icon: '♬', need: true,
+    key: 's6', no: 6, icon: '♬', need: true, rec: 'audio',
     name: '우리 목소리로 부르기',
-    tool: 'MR + 휴대폰 녹음',
+    tool: 'MR + 녹음',
     what: 'Suno 음원을 MR 삼아 모둠원이 자기 파트를 직접 부릅니다. Suno가 부른 것과 우리가 부른 것, 두 버전이 생깁니다.',
     out:  '우리가 부른 녹음 파일',
     ask: [
@@ -423,9 +423,9 @@ const STAGES = [
     ]
   },
   {
-    key: 's7', no: 7, icon: '⧉', need: true,
+    key: 's7', no: 7, icon: '⧉', need: true, rec: 'video',
     name: '장면 찍기',
-    tool: '휴대폰 촬영',
+    tool: '촬영',
     what: '우리 막에서 가장 중요한 대목 하나를 30초~1분으로 찍습니다. 전 장면을 다 찍지 않습니다.',
     out:  '장면 영상 (아래 [파일] 탭에서 [영상 내기] 또는 링크로)',
     ask: [

@@ -61,10 +61,10 @@ const TEACHER_POLL_SECONDS = 10;
 const MAX_UPLOAD_MB = 18;
 
 /* 바로 올릴 수 있는 파일 종류. 동영상 확장자는 일부러 넣지 않았습니다. */
-const ALLOW_UPLOAD = '.mp3,.m4a,.wav,.ogg,.png,.jpg,.jpeg,.webp,.pdf';
+const ALLOW_UPLOAD = '.mp3,.m4a,.wav,.ogg,.png,.jpg,.jpeg,.webp,.pdf,.mp4,.webm';
 
 /* 모둠 하나가 올릴 수 있는 파일 개수 */
-const MAX_FILES_PER_GROUP = 12;
+const MAX_FILES_PER_GROUP = 20;
 
 /* 서버 상태를 몇 초마다 확인할지. (너무 짧으면 구글 할당량을 많이 씁니다) */
 const POLL_SECONDS = 20;
@@ -103,3 +103,28 @@ const REVIEW_MIN_GROUPS = 2;
 
 /* [갤러리] 탭을 몇 초마다 새로 받을지 */
 const GALLERY_POLL_SECONDS = 30;
+
+/* ===========================================================================
+ *  ★ v2.1 (2026-09-13) — 화면에서 바로 녹음·촬영
+ *
+ *  6공정(우리 목소리)은 마이크만, 7공정(장면 찍기)은 카메라+마이크를 씁니다.
+ *  https 주소에서만 됩니다. 깃허브 페이지는 https 라 그대로 됩니다.
+ * =========================================================================*/
+
+/* 녹음 최대 길이(초). 넘으면 스스로 멈춥니다. */
+const REC_AUDIO_SECONDS = 90;
+/* 촬영 최대 길이(초). 30초 한 컷이 목표입니다. */
+const REC_VIDEO_SECONDS = 35;
+
+/* 촬영 화질 — 480p 600kbps + 소리 64kbps 면 30초에 2~3MB 입니다.
+   이 숫자를 올리면 화질이 좋아지는 대신 파일이 커집니다. 18MB 를 넘기지 마세요. */
+const REC_VIDEO_WIDTH  = 640;
+const REC_VIDEO_HEIGHT = 480;
+const REC_VIDEO_BPS    = 600000;
+const REC_AUDIO_BPS    = 96000;    /* 노래를 담으므로 말소리보다 넉넉하게 */
+
+/* 마이크 처리. 교실에서 스피커로 MR 을 틀 때 소리가 섞이는 것을 줄입니다.
+   이어폰을 끼고 부른다면 셋 다 false 로 두는 편이 소리가 자연스럽습니다. */
+const REC_ECHO_CANCEL   = true;
+const REC_NOISE_SUPPRESS = true;
+const REC_AUTO_GAIN      = true;

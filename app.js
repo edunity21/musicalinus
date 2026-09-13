@@ -10,7 +10,7 @@
  *  서버가 하나로 합쳐 주기 때문에 서로의 글이 지워지지 않습니다.
  * ==========================================================================*/
 
-const APP_VERSION = 'student v2.0.1 (2026-09-13) 제작공정';
+const APP_VERSION = 'student v2.1.0 (2026-09-13) 화면녹음';
 
 /* ---------------------------------------------------------------------------
  *  0. 지금 상태
@@ -1136,7 +1136,8 @@ function paintFiles() {
 
   box.innerHTML = list.length ? list.map(f => {
     const mine = f.by === S.sid || S.job === 'stage';
-    const icon = f.kind === 'audio' ? '♪' : f.kind === 'image' ? '▣' : '▤';
+    const icon = f.kind === 'audio' ? '♪' : f.kind === 'image' ? '▣'
+               : f.kind === 'video' ? '▶' : '▤';
     const opened = !!UP.open[f.id];
     return '<div class="fileitem" data-fid="' + esc(f.id) + '">' +
       '<div class="top">' +
@@ -1148,7 +1149,8 @@ function paintFiles() {
         '</div>' +
         '<div class="acts no-print">' +
           (f.kind === 'doc' ? '' :
-            '<button class="btn sm" data-op="play">' + (opened ? '접기' : (f.kind === 'audio' ? '들어보기' : '보기')) + '</button>') +
+            '<button class="btn sm" data-op="play">' + (opened ? '접기'
+              : (f.kind === 'audio' ? '들어보기' : f.kind === 'video' ? '재생' : '보기')) + '</button>') +
           '<a class="btn sm ghost" href="' + esc(f.url) + '" target="_blank" rel="noopener">새 창</a>' +
           (mine ? '<button class="btn sm danger" data-op="del">지우기</button>' : '') +
         '</div>' +
@@ -1387,6 +1389,8 @@ function stageDone(k) { return mkStage(k).status === 'done'; }
 
 function paintStages(force) {
   const box = $('#stageBoard'); if (!box) return;
+  /* ★ v2.1 — 녹음·촬영 중에는 절대 다시 그리지 않습니다. 다시 그리면 녹음이 끊깁니다. */
+  if (REC.busy) { paintStageSummary(); return; }
   if (!force && box.contains(document.activeElement)) { paintStageSummary(); return; }
 
   box.innerHTML = STAGES.map(stageCardHtml).join('');
@@ -1471,6 +1475,8 @@ function stageCardHtml(s) {
     });
     h += '</div>';
 
+    h += recZoneHtml(s);
+
     if (myFiles.length || myLinks.length) {
       h += '<div class="st-att"><div class="lg-l">이 공정에 낸 것</div>';
       myFiles.forEach(f => {
@@ -1507,6 +1513,13 @@ function wireStages(box) {
     const key = card.dataset.st;
     const head = $('[data-op="toggle"]', card);
     if (head) head.addEventListener('click', () => {
+      /* ★ v2.1 — 녹음 중이거나 아직 올리지 않은 녹음이 있으면 먼저 정리합니다.
+         그냥 다시 그리면 녹음이 소리 없이 사라집니다. */
+      if (REC.busy) {
+        if (recActive()) { toast('녹음 중입니다. 먼저 [멈추기]를 눌러 주세요', 'warn', 3200); return; }
+        if (REC.blob && !confirm('아직 올리지 않은 녹음이 있습니다.\n버리고 넘어갈까요?')) return;
+        recReset($('.reczone[data-rz="' + REC.stage + '"]'), false);
+      }
       MK.open[key] = !MK.open[key];
       paintStages(true);
     });
@@ -1523,6 +1536,7 @@ function wireStages(box) {
     }));
     const btn = $('[data-op="save"]', card);
     if (btn) btn.addEventListener('click', () => saveStage(key, true));
+    wireRec(card, stageOf(key));
   });
 }
 
@@ -1854,3 +1868,376 @@ function paintVote() {
     loadGallery(false);
   }));
 }
+
+/* ===========================================================================
+ *  9. 화면에서 바로 녹음·촬영 — v2.1 (2026-09-13)
+ *
+ *  6공정 「우리 목소리로 부르기」 → 마이크만
+ *  7공정 「장면 찍기」           → 카메라 + 마이크, 30초 한 컷
+ *
+ *  https 주소에서만 됩니다. 깃허브 페이지는 https 라 그대로 됩니다.
+ *  편집(자르기·자막·이어 붙이기)은 여기서 하지 않습니다. 그건 인샷의 몫입니다.
+ * =========================================================================*/
+
+const REC = {
+  busy: false,        /* 녹음·촬영 중이거나 방금 찍은 것을 들고 있는 동안 true */
+  stage: '',          /* 지금 쓰는 공정 key */
+  kind: '',           /* 'audio' | 'video' */
+  stream: null, rec: null, chunks: [],
+  blob: null, url: '', mime: '', startAt: 0, timer: null,
+  ac: null, analyser: null, raf: 0
+};
+
+/** 지금 실제로 녹음 중인지. (찍어 놓고 아직 안 올린 상태는 제외) */
+function recActive() {
+  return !!(REC.rec && REC.rec.state === 'recording');
+}
+
+/* 기기가 받아 주는 형식을 위에서부터 찾습니다. 아이패드는 보통 mp4 가 됩니다. */
+const REC_MIMES = {
+  audio: ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4',
+          'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'],
+  video: ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4',
+          'video/webm;codecs=h264,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+};
+function recPickMime(kind) {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const list = REC_MIMES[kind] || [];
+  for (let i = 0; i < list.length; i++) {
+    try { if (MediaRecorder.isTypeSupported(list[i])) return list[i]; } catch (e) {}
+  }
+  return '';
+}
+const recBase = m => String(m || '').split(';')[0];
+function recExt(m) {
+  const b = recBase(m);
+  return b === 'audio/mp4' ? '.m4a' : b === 'audio/ogg' ? '.ogg'
+       : b === 'video/mp4' ? '.mp4' : '.webm';
+}
+function recSecs(kind) {
+  return kind === 'video'
+    ? (typeof REC_VIDEO_SECONDS === 'number' ? REC_VIDEO_SECONDS : 35)
+    : (typeof REC_AUDIO_SECONDS === 'number' ? REC_AUDIO_SECONDS : 90);
+}
+function recSecure() {
+  /* 브라우저가 스스로 알려 주는 값을 먼저 씁니다. 옛 브라우저면 주소로 판단합니다. */
+  if (typeof window.isSecureContext === 'boolean') return window.isSecureContext;
+  return location.protocol === 'https:' || location.hostname === 'localhost';
+}
+function mmss(s) {
+  s = Math.max(0, Math.floor(s));
+  return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+}
+
+/* ---------------------------------------------------------------------------
+ *  9-1. 공정 카드 안에 들어가는 녹음 자리
+ * -------------------------------------------------------------------------*/
+function recZoneHtml(s) {
+  if (!s || !s.rec) return '';
+  const isV = s.rec === 'video';
+  const lim = recSecs(s.rec);
+
+  if (!recSecure()) {
+    return '<div class="reczone off"><div class="rz-head">' +
+      (isV ? '지금 바로 찍기' : '지금 바로 녹음하기') + '</div>' +
+      '<p class="rz-msg bad">주소가 <b>https</b> 가 아니라 마이크·카메라를 쓸 수 없습니다. ' +
+      '학교 주소(https://edunity21.github.io/musicalinus/)로 들어와 주세요.</p></div>';
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+    return '<div class="reczone off"><div class="rz-head">' +
+      (isV ? '지금 바로 찍기' : '지금 바로 녹음하기') + '</div>' +
+      '<p class="rz-msg bad">이 기기의 브라우저는 화면 안 녹음을 지원하지 않습니다. ' +
+      '휴대폰으로 찍어서 [파일] 탭에 올리거나 [주소로 내기]를 쓰세요.</p></div>';
+  }
+
+  return '<div class="reczone" data-rz="' + s.key + '" data-kind="' + s.rec + '">' +
+    '<div class="rz-head">' + (isV ? '📹 지금 바로 찍기' : '🎙 지금 바로 녹음하기') +
+      '<span class="rz-lim">최대 ' + lim + '초</span></div>' +
+    '<p class="rz-tip">' + (isV
+      ? '한 번에 쭉 찍는 것만 됩니다. <b>자르고 이어 붙이는 편집은 인샷에서</b> 하세요. ' +
+        '찍기 전에 연출 노트의 동선을 한 번 읽고, 조용해진 뒤에 시작하세요.'
+      : 'MR을 <b>이어폰</b>으로 들으면서 부르면 반주가 섞이지 않습니다. ' +
+        '스피커로 틀어야 한다면 태블릿을 입 가까이 두세요.') + '</p>' +
+    (isV ? '<video class="rz-live" playsinline muted></video>' : '<div class="rz-level"><span></span></div>') +
+    '<div class="rz-bar"><span class="rz-time">00:00</span>' +
+      '<span class="rz-dot" hidden>●</span>' +
+      '<span class="rz-size"></span></div>' +
+    '<div class="btnrow rz-ctl">' +
+      '<button class="btn primary" data-rz-op="start">' + (isV ? '찍기 시작' : '녹음 시작') + '</button>' +
+      '<button class="btn danger" data-rz-op="stop" disabled>멈추기</button>' +
+      (isV ? '<button class="btn ghost" data-rz-op="flip">카메라 앞뒤 바꾸기</button>' : '') +
+    '</div>' +
+    '<div class="rz-done hidden">' +
+      (isV ? '<video class="rz-play" controls playsinline></video>'
+           : '<audio class="rz-play" controls></audio>') +
+      '<div class="btnrow" style="margin-top:8px">' +
+        '<button class="btn primary" data-rz-op="save">이대로 올리기</button>' +
+        '<button class="btn" data-rz-op="retry">다시 하기</button>' +
+      '</div>' +
+    '</div>' +
+    '<p class="rz-msg"></p>' +
+  '</div>';
+}
+
+/* ---------------------------------------------------------------------------
+ *  9-2. 배선
+ * -------------------------------------------------------------------------*/
+let REC_FACING = 'environment';
+
+function wireRec(card, s) {
+  if (!s || !s.rec) return;
+  const z = $('.reczone[data-rz]', card);
+  if (!z) return;
+  $$('[data-rz-op]', z).forEach(b => b.addEventListener('click', () => {
+    const op = b.dataset.rzOp;
+    if (op === 'start') recStart(z, s);
+    else if (op === 'stop') recStop(z);
+    else if (op === 'save') recSave(z, s);
+    else if (op === 'retry') recReset(z, true);
+    else if (op === 'flip') {
+      REC_FACING = (REC_FACING === 'environment') ? 'user' : 'environment';
+      recMsg(z, REC_FACING === 'environment' ? '뒤 카메라로 바꿨습니다' : '앞 카메라로 바꿨습니다');
+      if (REC.stream && !REC.rec) { recStopStream(); recStart(z, s); }
+    }
+  }));
+}
+
+function recMsg(z, t, bad) {
+  const el = $('.rz-msg', z);
+  if (el) { el.textContent = t || ''; el.className = 'rz-msg' + (bad ? ' bad' : ''); }
+}
+
+async function recStart(z, s) {
+  if (REC.busy && REC.stage !== s.key) {
+    recMsg(z, '다른 공정에서 녹음 중입니다. 먼저 그것을 끝내 주세요.', true);
+    return;
+  }
+  recReset(z, false);
+  const isV = s.rec === 'video';
+  const mime = recPickMime(s.rec);
+  const audio = {
+    echoCancellation: (typeof REC_ECHO_CANCEL === 'boolean' ? REC_ECHO_CANCEL : true),
+    noiseSuppression: (typeof REC_NOISE_SUPPRESS === 'boolean' ? REC_NOISE_SUPPRESS : true),
+    autoGainControl: (typeof REC_AUTO_GAIN === 'boolean' ? REC_AUTO_GAIN : true)
+  };
+  const cons = isV
+    ? { audio: audio, video: {
+        width: { ideal: (typeof REC_VIDEO_WIDTH === 'number' ? REC_VIDEO_WIDTH : 640) },
+        height: { ideal: (typeof REC_VIDEO_HEIGHT === 'number' ? REC_VIDEO_HEIGHT : 480) },
+        frameRate: { ideal: 24, max: 30 }, facingMode: REC_FACING } }
+    : { audio: audio };
+
+  recMsg(z, '마이크' + (isV ? '와 카메라' : '') + ' 를 준비하는 중…');
+  try {
+    REC.stream = await navigator.mediaDevices.getUserMedia(cons);
+  } catch (e) {
+    const n = e && e.name;
+    recMsg(z, n === 'NotAllowedError'
+      ? '마이크·카메라 사용을 허용해 주세요. 주소창 왼쪽 자물쇠를 눌러 허용으로 바꾸면 됩니다.'
+      : n === 'NotFoundError' ? '마이크나 카메라를 찾지 못했습니다.'
+      : n === 'NotReadableError' ? '다른 앱이 마이크·카메라를 쓰고 있습니다. 그 앱을 닫고 다시 해 주세요.'
+      : '마이크·카메라를 열지 못했습니다 (' + (n || '알 수 없음') + ')', true);
+    return;
+  }
+
+  if (isV) {
+    const live = $('.rz-live', z);
+    live.srcObject = REC.stream;
+    live.muted = true;
+    try { await live.play(); } catch (e) {}
+  } else {
+    recLevel(z);
+  }
+
+  const opt = {};
+  if (mime) opt.mimeType = mime;
+  if (isV) opt.videoBitsPerSecond = (typeof REC_VIDEO_BPS === 'number' ? REC_VIDEO_BPS : 600000);
+  opt.audioBitsPerSecond = (typeof REC_AUDIO_BPS === 'number' ? REC_AUDIO_BPS : 96000);
+
+  try { REC.rec = new MediaRecorder(REC.stream, opt); }
+  catch (e) {
+    try { REC.rec = new MediaRecorder(REC.stream); }
+    catch (e2) { recMsg(z, '이 기기에서는 녹음이 되지 않습니다.', true); recStopStream(); return; }
+  }
+
+  REC.busy = true; REC.stage = s.key; REC.kind = s.rec;
+  REC.chunks = []; REC.blob = null; REC.mime = REC.rec.mimeType || mime || '';
+  REC.rec.ondataavailable = ev => { if (ev.data && ev.data.size) REC.chunks.push(ev.data); };
+  REC.rec.onstop = () => recFinish(z, s);
+  REC.rec.start(250);
+
+  REC.startAt = Date.now();
+  $('[data-rz-op="start"]', z).disabled = true;
+  $('[data-rz-op="stop"]', z).disabled = false;
+  $('.rz-dot', z).hidden = false;
+  z.classList.add('on');
+  recMsg(z, '');
+
+  const lim = recSecs(s.rec);
+  clearInterval(REC.timer);
+  REC.timer = setInterval(() => {
+    const sec = (Date.now() - REC.startAt) / 1000;
+    const t = $('.rz-time', z); if (t) t.textContent = mmss(sec);
+    if (sec >= lim) { recMsg(z, lim + '초가 되어 스스로 멈췄습니다'); recStop(z); }
+  }, 200);
+}
+
+function recStop(z) {
+  clearInterval(REC.timer); REC.timer = null;
+  try { if (REC.rec && REC.rec.state !== 'inactive') REC.rec.stop(); } catch (e) {}
+  const b = $('[data-rz-op="stop"]', z); if (b) b.disabled = true;
+}
+
+function recFinish(z, s) {
+  recStopStream();
+  const type = recBase(REC.mime) || (s.rec === 'video' ? 'video/mp4' : 'audio/mp4');
+  REC.blob = new Blob(REC.chunks, { type: type });
+  REC.url = URL.createObjectURL(REC.blob);
+  const p = $('.rz-play', z);
+  if (p) { p.src = REC.url; p.load && p.load(); }
+  $('.rz-done', z).classList.remove('hidden');
+  $('.rz-dot', z).hidden = true;
+  z.classList.remove('on');
+  z.classList.add('done');        /* 카메라 미리보기를 숨기고 찍은 것만 보여 줍니다 */
+
+  const mb = REC.blob.size / 1048576;
+  $('.rz-size', z).textContent = mb.toFixed(1) + 'MB';
+  const cap = (typeof MAX_UPLOAD_MB === 'number' ? MAX_UPLOAD_MB : 18);
+  if (mb > cap) {
+    recMsg(z, '파일이 ' + mb.toFixed(1) + 'MB 라 올릴 수 없습니다(' + cap + 'MB까지). ' +
+              '더 짧게 다시 찍어 주세요.', true);
+    $('[data-rz-op="save"]', z).disabled = true;
+  } else {
+    recMsg(z, '들어 보고 괜찮으면 [이대로 올리기] 를 누르세요.');
+  }
+  $('[data-rz-op="start"]', z).disabled = false;
+}
+
+function recStopStream() {
+  try { if (REC.stream) REC.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  REC.stream = null;
+  cancelAnimationFrame(REC.raf); REC.raf = 0;
+  try { if (REC.ac) REC.ac.close(); } catch (e) {}
+  REC.ac = null; REC.analyser = null;
+}
+
+/** 마이크가 잡히고 있는지 눈으로 보여 줍니다. */
+function recLevel(z) {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    REC.ac = new AC();
+    const src = REC.ac.createMediaStreamSource(REC.stream);
+    REC.analyser = REC.ac.createAnalyser();
+    REC.analyser.fftSize = 512;
+    src.connect(REC.analyser);
+    const buf = new Uint8Array(REC.analyser.frequencyBinCount);
+    const bar = $('.rz-level span', z);
+    const tick = () => {
+      if (!REC.analyser || !bar) return;
+      REC.analyser.getByteTimeDomainData(buf);
+      let peak = 0;
+      for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
+      bar.style.width = Math.min(100, Math.round(peak / 90 * 100)) + '%';
+      REC.raf = requestAnimationFrame(tick);
+    };
+    tick();
+  } catch (e) {}
+}
+
+function recReset(z, keepBusy) {
+  clearInterval(REC.timer); REC.timer = null;
+  recStopStream();
+  try { if (REC.url) URL.revokeObjectURL(REC.url); } catch (e) {}
+  REC.rec = null; REC.chunks = []; REC.blob = null; REC.url = ''; REC.mime = '';
+  if (!keepBusy) { REC.busy = false; REC.stage = ''; REC.kind = ''; }
+  if (!z) return;
+  const done = $('.rz-done', z); if (done) done.classList.add('hidden');
+  const p = $('.rz-play', z); if (p) p.removeAttribute('src');
+  const live = $('.rz-live', z); if (live) live.srcObject = null;
+  const t = $('.rz-time', z); if (t) t.textContent = '00:00';
+  const sz = $('.rz-size', z); if (sz) sz.textContent = '';
+  const lv = $('.rz-level span', z); if (lv) lv.style.width = '0%';
+  const dot = $('.rz-dot', z); if (dot) dot.hidden = true;
+  z.classList.remove('done');
+  const sv = $('[data-rz-op="save"]', z); if (sv) sv.disabled = false;
+  const st = $('[data-rz-op="start"]', z); if (st) st.disabled = false;
+  const sp = $('[data-rz-op="stop"]', z); if (sp) sp.disabled = true;
+  z.classList.remove('on');
+  recMsg(z, '');
+}
+
+/* ---------------------------------------------------------------------------
+ *  9-3. 올리기 — [파일] 탭의 올리기와 같은 길로 갑니다
+ * -------------------------------------------------------------------------*/
+function recName(s, ext) {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const what = s.rec === 'video' ? '장면' : '노래';
+  return '[' + s.no + '공정 ' + (S.name || '') + '] ' + what + '_' + hh + mm + ext;
+}
+
+async function recSave(z, s) {
+  if (!REC.blob) { recMsg(z, '아직 찍은 것이 없습니다', true); return; }
+  const have = ((S.work && S.work.files) || []).length;
+  const cap = (typeof MAX_FILES_PER_GROUP === 'number' ? MAX_FILES_PER_GROUP : 20);
+  if (have >= cap) {
+    recMsg(z, '모둠이 올린 파일이 ' + have + '개라 더 올릴 수 없습니다(' + cap + '개까지). ' +
+              '[파일] 탭에서 안 쓰는 것을 지워 주세요.', true);
+    return;
+  }
+
+  const btn = $('[data-rz-op="save"]', z);
+  btn.disabled = true;
+  recMsg(z, '올리는 중… 화면을 닫지 마세요');
+
+  let b64;
+  try { b64 = await recBase64(REC.blob); }
+  catch (e) { recMsg(z, '파일을 읽지 못했습니다', true); btn.disabled = false; return; }
+
+  const mime = recBase(REC.blob.type) || (s.rec === 'video' ? 'video/mp4' : 'audio/mp4');
+  const res = await apiPost('upload', {
+    idToken: Auth.idToken, sid: S.sid,
+    name: recName(s, recExt(REC.mime || REC.blob.type)), mime: mime, data: b64
+  }, 180000);
+
+  btn.disabled = false;
+  if (!res.ok) {
+    recMsg(z, res.error === 'TOO_BIG' ? '파일이 너무 큽니다 (' + res.message + 'MB). 더 짧게 다시 찍어 주세요.'
+           : res.error === 'BAD_TYPE' ? '이 형식은 올릴 수 없습니다 (' + esc(mime) + '). 선생님께 알려 주세요.'
+           : res.error === 'TOO_MANY' ? '파일이 너무 많습니다. [파일] 탭에서 지워 주세요.'
+           : errText(res), true);
+    return;
+  }
+
+  mergeWork(res.work);
+  S.members = res.members || S.members;
+  REC.busy = false; REC.stage = ''; REC.kind = '';
+  recReset(z, false);
+  toast((s.rec === 'video' ? '찍은 것을' : '녹음을') + ' 올렸습니다', 'ok', 3500);
+  paintAll();
+  paintStages(true);
+}
+
+function recBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const t = String(r.result);
+      const i = t.indexOf(',');
+      resolve(i >= 0 ? t.slice(i + 1) : t);
+    };
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+/* 화면을 떠나거나 탭을 옮기면 마이크·카메라를 반드시 끕니다. */
+window.addEventListener('pagehide', () => { recStopStream(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && REC.rec && REC.rec.state === 'recording') {
+    const z = $('.reczone[data-rz="' + REC.stage + '"]');
+    if (z) { recMsg(z, '화면이 가려져서 멈췄습니다'); recStop(z); }
+  }
+});
