@@ -6,7 +6,7 @@
 /* ★ 2026-09-08 — 수업 시간·제출 시간을 통제하지 않습니다.
       입장과 제출은 늘 열려 있고, 낸 뒤에도 학생이 고쳐서 다시 낼 수 있습니다. */
 
-const TEACHER_VERSION = 'teacher v1.6.0 (2026-09-09) 정원5';
+const TEACHER_VERSION = 'teacher v2.0.0 (2026-09-13) 제작공정';
 
 const T = {
   cfg: [], cls: '', status: null, roster: [], pending: [], edit: null,
@@ -42,8 +42,9 @@ async function onLogin() {
   $('#srvLine').textContent = res.version + ' · 시트 연결됨';
 
   const opts = CLASS_LIST.map(c => '<option value="' + c + '">' + c + '</option>').join('');
-  $('#selClass').innerHTML = opts;
-  $('#selClass2').innerHTML = opts;
+  ['#selClass', '#selClass2', '#selClass3', '#selClass4', '#selClass5'].forEach(sel => {
+    const el = $(sel); if (el) el.innerHTML = opts;
+  });
   T.cls = CLASS_LIST[0];
 
   await loadConfig();
@@ -57,6 +58,10 @@ function bind() {
     $$('.panel').forEach(p => { p.hidden = (p.id !== 'panel-' + n); });
     if (n === 'status') loadStatus();
     if (n === 'roster' && !T.roster.length) loadRoster();
+    /* ★ v2.0 */
+    if (n === 'stages' && !X.stages) loadStages();
+    if (n === 'record' && !X.people) loadPeople();
+    if (n === 'gal' && !X.gal) loadGal();
     window.scrollTo({ top: 0 });
   }));
   $('#btnLogout').addEventListener('click', () => { Auth.signOut(); location.reload(); });
@@ -753,4 +758,400 @@ async function loadLog() {
                                 : '<span class="badge draft">' + esc(r.result) + '</span>') + '</td>' +
     '<td class="dim">' + esc(r.note) + '</td></tr>').join('')
     : '<tr><td colspan="7" class="dim">기록이 없습니다.</td></tr>';
+}
+
+/* ===========================================================================
+ *  7. 제작 현황 · 세특 자료 · 시사회 — v2.0 (2026-09-13)
+ *
+ *  서버는 Stage.gs 가 맡습니다. Code.gs 는 건드리지 않았습니다.
+ * =========================================================================*/
+
+const X = { stages: null, people: null, record: null, gal: null, open: '', q: '' };
+
+window.addEventListener('DOMContentLoaded', function () {
+  const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); };
+  on('#btnLoadStages', 'click', loadStages);
+  on('#selClass3', 'change', loadStages);
+  on('#btnLoadPeople', 'click', loadPeople);
+  on('#selClass4', 'change', () => { X.record = null; loadPeople(); });
+  on('#peopleSearch', 'input', () => { X.q = $('#peopleSearch').value.trim(); paintPeople(); });
+  on('#btnPrintRecord', 'click', () => {
+    if (!X.record) { toast('먼저 학생을 고르세요', 'warn', 3000); return; }
+    window.print();
+  });
+  on('#btnCopyRecord', 'click', copyRecord);
+  on('#btnLoadGal', 'click', loadGal);
+  on('#selClass5', 'change', loadGal);
+  on('#btnPrintGal', 'click', () => window.print());
+});
+
+function xErr(res, box) {
+  if (res && res.error === 'UNKNOWN_ACTION') {
+    $(box).innerHTML = '<div class="card"><h2>서버에 Stage.gs 가 아직 없습니다</h2>' +
+      '<p class="muted">Apps Script 에 <b>Stage.gs</b> 를 넣고, <code>Code.gs</code> 의 <code>route_</code> 마지막 줄을 ' +
+      '<code>default: return routeExt_(b);</code> 로 바꾼 뒤, 함수 목록에서 <b>setupExt</b> 를 한 번 실행하세요. ' +
+      '그다음 [배포 관리] → 연필 → 새 버전 → 배포 를 하셔야 합니다.</p></div>';
+    return true;
+  }
+  $(box).innerHTML = '<p class="err">' + esc(errText(res)) + '</p>';
+  return false;
+}
+
+/* ---------------------------------------------------------------------------
+ *  7-1. 제작 현황
+ * -------------------------------------------------------------------------*/
+async function loadStages() {
+  const cls = $('#selClass3').value || CLASS_LIST[0];
+  $('#stageGrid').innerHTML = '<p class="dim">불러오는 중…</p>';
+  $('#stageDetail').innerHTML = '';
+  const res = await apiPost('xTeacherStages', { idToken: Auth.idToken, cls: cls }, 45000);
+  if (!res.ok) { xErr(res, '#stageGrid'); return; }
+  X.stages = res;
+  $('#stagesAt').textContent = '받아온 시각 ' +
+    new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  paintStageGrid();
+}
+
+function paintStageGrid() {
+  const r = X.stages; if (!r) return;
+  const coreN = CORE_STAGES.length;
+  const totalCore = r.groups.reduce((n, g) => n + g.coreDone, 0);
+  const extra = r.groups.reduce((n, g) => n + g.extraDone, 0);
+  const why = r.groups.reduce((n, g) => n + g.whyWritten, 0);
+  const links = r.groups.reduce((n, g) => n + (g.links || []).length, 0);
+  const allDone = r.groups.filter(g => g.coreDone === coreN).length;
+
+  $('#stageKpis').innerHTML =
+    kpi('일곱 공정 다 끝낸 모둠', allDone + ' / ' + r.groups.length, allDone === r.groups.length ? 'hi' : '') +
+    kpi('끝낸 공정 (전체)', totalCore + ' / ' + (coreN * r.groups.length), '') +
+    kpi('더 한 선택 공정', extra + '개', extra ? 'hi' : '') +
+    kpi('「왜 그렇게 했나」 쓴 칸', why + '개', why ? 'hi' : 'bad') +
+    kpi('낸 주소', links + '개', '');
+
+  let h = '<table class="tb stagetable"><thead><tr><th>모둠</th>';
+  STAGES.forEach(s => {
+    h += '<th class="stcol' + (s.need ? '' : ' extra') + '" title="' + esc(s.name) + '">' +
+      '<span class="sc-no">' + s.no + '</span><span class="sc-ic">' + s.icon + '</span></th>';
+  });
+  h += '<th class="num">「왜」</th><th class="num">주소</th><th class="num">파일</th></tr></thead><tbody>';
+
+  r.groups.forEach(g => {
+    h += '<tr><td><b>' + g.group + '모둠</b><div class="dim" style="font-size:.8rem">' +
+      esc(g.actTitle || ('제' + g.actNo + '막')) + '</div></td>';
+    STAGES.forEach(s => {
+      const st = (g.stages || []).find(x => x.stage === s.key) || { status: 'todo', log: {} };
+      const n = ['prompt', 'ai', 'fix', 'why'].filter(k => String(st.log[k] || '').trim().length >= 2).length;
+      h += '<td class="stcell ' + st.status + '" data-g="' + g.group + '" data-s="' + s.key + '" ' +
+        'title="' + esc(s.name + ' · ' + statusName(st.status) + ' · 일지 ' + n + '/4') + '">' +
+        '<span class="mk">' + statusMark(st.status) + '</span>' +
+        '<span class="ln">' + n + '</span></td>';
+    });
+    h += '<td class="num">' + g.whyWritten + '</td>' +
+         '<td class="num">' + (g.links || []).length + '</td>' +
+         '<td class="num">' + (g.files || 0) + '</td></tr>';
+  });
+  h += '</tbody></table>' +
+    '<p class="dim" style="font-size:.84rem; margin-top:8px">' +
+    '칸 안의 숫자는 <b>제작 일지 네 칸 가운데 몇 칸을 썼는지</b>입니다. ' +
+    '● 냈음 · ◐ 하는 중 · ○ 아직. 흐린 칸(8~10)은 선택 공정입니다.</p>';
+  $('#stageGrid').innerHTML = h;
+
+  $$('#stageGrid .stcell').forEach(td => td.addEventListener('click', () => {
+    showStageDetail(Number(td.dataset.g), td.dataset.s);
+  }));
+}
+
+function showStageDetail(group, key) {
+  const r = X.stages; if (!r) return;
+  const g = r.groups.find(x => x.group === group);
+  const s = stageOf(key);
+  const st = (g.stages || []).find(x => x.stage === key) || { status: 'todo', log: {}, ownerName: '' };
+  const def = s ? s.log : [];
+  $('#stageDetail').innerHTML =
+    '<div class="card recordcard">' +
+      '<div class="own-tag">' + group + '모둠 · 제' + g.actNo + '막 ' + esc(g.actTitle || '') + '</div>' +
+      '<h2>' + (s ? s.icon + ' ' + esc(s.name) : esc(key)) + ' <span class="st-badge ' + st.status + '">' +
+        statusMark(st.status) + ' ' + statusName(st.status) + '</span></h2>' +
+      '<p class="dim" style="font-size:.88rem">담당 ' + esc(st.ownerName || '—') +
+        (st.at ? ' · 마지막 저장 ' + esc(st.at) + (st.byName ? ' (' + esc(st.byName) + ')' : '') : '') + '</p>' +
+      def.map(f => {
+        const v = (st.log || {})[f.key] || '';
+        return '<div class="logshow' + (f.key === 'why' ? ' why' : '') + '">' +
+          '<div class="lg-l">' + esc(f.label) + '</div>' +
+          '<div class="lg-v">' + (v ? esc(v).replace(/\n/g, '<br>') : '<span class="dim">비어 있습니다</span>') + '</div>' +
+        '</div>';
+      }).join('') +
+      ((g.links || []).filter(l => l.stage === key).length
+        ? '<div class="st-att"><div class="lg-l">이 공정으로 낸 주소</div>' +
+          (g.links || []).filter(l => l.stage === key).map(l =>
+            '<a class="tagpill" href="' + esc(l.url) + '" target="_blank" rel="noopener">🔗 ' +
+            esc(l.title) + ' <span class="dim">' + esc(l.name) + '</span></a>').join('') + '</div>'
+        : '') +
+    '</div>';
+  $('#stageDetail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/* ---------------------------------------------------------------------------
+ *  7-2. 세특 자료
+ * -------------------------------------------------------------------------*/
+async function loadPeople() {
+  const cls = $('#selClass4').value || CLASS_LIST[0];
+  $('#peopleBody').innerHTML = '<tr><td colspan="13" class="dim">불러오는 중…</td></tr>';
+  const res = await apiPost('xTeacherPeople', { idToken: Auth.idToken, cls: cls }, 45000);
+  if (!res.ok) { xErr(res, '#recordOut'); $('#peopleBody').innerHTML = ''; return; }
+  X.people = res;
+  paintPeople();
+}
+
+function paintPeople() {
+  const r = X.people; if (!r) return;
+  const q = (X.q || '').toLowerCase();
+  const list = r.people.filter(p => !q || p.sid.indexOf(q) >= 0 || p.name.toLowerCase().indexOf(q) >= 0);
+  if (!list.length) { $('#peopleBody').innerHTML = '<tr><td colspan="13" class="dim">해당하는 학생이 없습니다.</td></tr>'; return; }
+
+  $('#peopleBody').innerHTML = list.map(p => {
+    const thin = (p.lines + p.stagesTouched + p.reflects) === 0;
+    return '<tr class="prow' + (X.open === p.sid ? ' on' : '') + (thin ? ' thin' : '') +
+      '" data-sid="' + esc(p.sid) + '" style="cursor:pointer">' +
+      '<td>' + esc(p.sid) + '</td><td><b>' + esc(p.name) + '</b></td>' +
+      '<td>' + (p.group || '—') + '</td>' +
+      '<td>' + esc(jobName(p.job)) + '</td><td>' + esc(castName(p.role)) + '</td>' +
+      '<td class="num">' + p.lines + '</td>' +
+      '<td class="num">' + p.files + '</td>' +
+      '<td class="num">' + p.links + '</td>' +
+      '<td class="num">' + p.stagesOwned + '</td>' +
+      '<td class="num' + (p.whyCount ? ' hi' : ' zero') + '">' + p.whyCount + '</td>' +
+      '<td class="num">' + p.reflects + '</td>' +
+      '<td class="num">' + p.praiseIn + '</td>' +
+      '<td class="num">' + p.reviews + '</td>' +
+    '</tr>';
+  }).join('');
+
+  $$('#peopleBody .prow').forEach(tr => tr.addEventListener('click', () => loadRecord(tr.dataset.sid)));
+}
+
+async function loadRecord(sid) {
+  X.open = sid;
+  paintPeople();
+  $('#recordOut').innerHTML = '<p class="dim">모으는 중…</p>';
+  const res = await apiPost('xTeacherRecord', {
+    idToken: Auth.idToken, cls: $('#selClass4').value, sid: sid
+  }, 45000);
+  if (!res.ok) { xErr(res, '#recordOut'); return; }
+  X.record = res;
+  paintRecord();
+  $('#recordOut').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function paintRecord() {
+  const r = X.record; if (!r) return;
+  const s = r.student, g = r.group;
+  const box = [];
+
+  box.push('<div class="recordsheet" id="recordSheet">');
+  box.push('<div class="rs-head">' +
+    '<div class="rs-title">교과세부능력특기사항 근거 자료</div>' +
+    '<div class="rs-who"><b>' + esc(s.name) + '</b> · ' + esc(s.sid) + ' · ' + esc(s.cls) +
+      ' · ' + s.group + '모둠</div>' +
+    '<div class="rs-sub">' + esc(jobName(s.job)) + ' · ' + esc(castName(s.role)) + ' 역 ｜ ' +
+      '제' + g.actNo + '막 「' + esc(g.actTitle || '(제목 없음)') + '」 ♪ ' +
+      esc(g.numberTitle || '(넘버 제목 없음)') + '</div>' +
+    '<div class="rs-at">MUSICALINUS 제작소 · ' + new Date().toLocaleDateString('ko-KR') + '</div>' +
+  '</div>');
+
+  /* ① 왜 그렇게 했나 — 맨 앞에 둡니다 */
+  const whys = (r.stages || []).filter(x => String((x.log || {}).why || '').trim().length >= 2);
+  box.push(rsBlock('① 이 학생이 내린 판단 — 「왜 그렇게 했나」',
+    whys.length
+      ? whys.map(x => '<div class="rs-why"><div class="rs-wh">' +
+          esc(x.name) + (x.mine ? ' <span class="tag-own">담당</span>' : '') + '</div>' +
+          '<div class="rs-wt">' + esc(x.log.why).replace(/\n/g, '<br>') + '</div></div>').join('')
+      : '<p class="dim">아직 적은 것이 없습니다.</p>',
+    '세특 문장이 여기에서 나옵니다.'));
+
+  /* ② 공정별 제작 일지 */
+  box.push(rsBlock('② 제작 일지 — 무엇을 넣고 무엇을 고쳤나',
+    (r.stages || []).length
+      ? (r.stages || []).map(x => {
+          const def = stageOf(x.stage);
+          const ls = def ? def.log : [];
+          return '<div class="rs-stage"><div class="rs-sn">' +
+            (def ? def.icon + ' ' + esc(def.name) : esc(x.stage)) +
+            ' <span class="st-badge ' + x.status + '">' + statusName(x.status) + '</span>' +
+            (x.mine ? ' <span class="tag-own">이 학생이 담당</span>' : '') + '</div>' +
+            ls.filter(f => f.key !== 'why').map(f => {
+              const v = (x.log || {})[f.key] || '';
+              if (!String(v).trim()) return '';
+              return '<div class="rs-lg"><span class="k">' + esc(f.label) + '</span>' +
+                '<span class="v">' + esc(v).replace(/\n/g, '<br>') + '</span></div>';
+            }).join('') + '</div>';
+        }).join('')
+      : '<p class="dim">맡았거나 손댄 공정이 없습니다.</p>'));
+
+  /* ③ 직접 쓴 대사·가사 */
+  const lineHtmlR = (r.lines || []).map(x =>
+    '<div class="rs-line">' + (x.kind === 'dir'
+      ? '<span class="k">지문</span>' : '<span class="k">' + esc(castName(x.who)) + '</span>') +
+    '<span class="v">' + esc(x.text) + '</span></div>').join('');
+  const lyrHtmlR = (r.lyrics || []).map(x =>
+    '<div class="rs-line"><span class="k">' + esc(x.who ? castName(x.who) : '전원') + '</span>' +
+    '<span class="v">' + esc(x.text) + '</span></div>').join('');
+  box.push(rsBlock('③ 직접 쓴 대사 · 가사 (' + (r.lines || []).length + '줄 · ' + (r.lyrics || []).length + '줄)',
+    (lineHtmlR || lyrHtmlR)
+      ? (lineHtmlR ? '<div class="lg-l">대사 · 지문</div>' + lineHtmlR : '') +
+        (lyrHtmlR ? '<div class="lg-l" style="margin-top:10px">가사</div>' + lyrHtmlR : '')
+      : '<p class="dim">아직 쓴 줄이 없습니다.</p>'));
+
+  /* ④ 만든 것 */
+  const att = (r.files || []).map(f =>
+      '<a class="tagpill" href="' + esc(f.url) + '" target="_blank" rel="noopener">' +
+      (f.kind === 'audio' ? '♪' : f.kind === 'image' ? '▣' : '▤') + ' ' + esc(f.name) + '</a>').join('') +
+    (r.links || []).map(l =>
+      '<a class="tagpill" href="' + esc(l.url) + '" target="_blank" rel="noopener">🔗 ' +
+      esc(l.title) + '</a>').join('');
+  box.push(rsBlock('④ 이 학생이 낸 것', att || '<p class="dim">낸 파일·주소가 없습니다.</p>'));
+
+  /* ⑤ 성찰 */
+  box.push(rsBlock('⑤ 차시별 성찰',
+    (r.reflects || []).length
+      ? (r.reflects || []).map(x => '<div class="rs-ref"><div class="rl">' + x.lesson + '차시</div><div class="rt">' +
+          (x.did ? '<b>한 것</b> ' + esc(x.did) + '<br>' : '') +
+          (x.stuck ? '<b>막힌 것</b> ' + esc(x.stuck) + '<br>' : '') +
+          (x.next ? '<b>다음</b> ' + esc(x.next) : '') + '</div></div>').join('')
+      : '<p class="dim">아직 적은 것이 없습니다.</p>'));
+
+  /* ⑥ 동료가 본 이 학생 */
+  box.push(rsBlock('⑥ 모둠원이 써 준 한 줄 — 교차 확인',
+    (r.praiseIn || []).length
+      ? (r.praiseIn || []).map(p => '<div class="rs-praise"><b>' + esc(p.fromName) + '</b> ' +
+          esc(p.text) + '</div>').join('')
+      : '<p class="dim">아직 받은 것이 없습니다.</p>',
+    '본인이 쓴 것과 어긋나지 않는지 견주어 보세요.'));
+
+  /* ⑦ 다른 모둠에 대한 감상·투표 (감상·비평 영역) */
+  const revs = (r.reviews || []).map(x =>
+    '<div class="rs-line"><span class="k">' + x.group + '모둠</span><span class="v">' + esc(x.text) + '</span></div>').join('');
+  const vts = (r.votes || []).map(x =>
+    '<div class="rs-line"><span class="k">' + esc(voteCatName(x.cat)) + '</span>' +
+    '<span class="v">' + x.group + '모둠 — ' + esc(x.why || '') + '</span></div>').join('');
+  box.push(rsBlock('⑦ 다른 모둠 감상 · 투표 이유 (감상 · 비평)',
+    (revs || vts) ? revs + vts : '<p class="dim">아직 남긴 것이 없습니다.</p>'));
+
+  /* 모둠 맥락 */
+  box.push('<div class="rs-foot">모둠원 — ' +
+    (g.members || []).map(m => esc(m.name) + '(' + esc(jobName(m.job)) + ')').join(' · ') +
+    (g.submitted ? ' ｜ 막 제출 ' + esc(g.submittedAt) : ' ｜ 아직 제출 전') + '</div>');
+  box.push('</div>');
+
+  $('#recordOut').innerHTML = box.join('');
+}
+
+function rsBlock(title, inner, note) {
+  return '<div class="rs-block"><h3>' + esc(title) + '</h3>' +
+    (note ? '<p class="rs-note">' + esc(note) + '</p>' : '') + inner + '</div>';
+}
+
+/** 세특 자료를 글자로 복사 — 나이스에 붙여 넣기 전에 다듬을 때 씁니다. */
+function copyRecord() {
+  const r = X.record;
+  if (!r) { toast('먼저 학생을 고르세요', 'warn', 3000); return; }
+  const s = r.student, g = r.group, o = [];
+  o.push('[ 교과세부능력특기사항 근거 자료 ]');
+  o.push(s.cls + ' ' + s.sid + ' ' + s.name + ' · ' + s.group + '모둠 · ' +
+         jobName(s.job) + ' · ' + castName(s.role) + ' 역');
+  o.push('제' + g.actNo + '막 「' + (g.actTitle || '') + '」 ♪ ' + (g.numberTitle || ''));
+  o.push('');
+  o.push('■ 이 학생이 내린 판단');
+  (r.stages || []).forEach(x => {
+    const why = String((x.log || {}).why || '').trim();
+    if (why) o.push('  · [' + x.name + '] ' + why.replace(/\n/g, ' '));
+  });
+  o.push('');
+  o.push('■ 제작 일지');
+  (r.stages || []).forEach(x => {
+    const def = stageOf(x.stage);
+    o.push('  [' + x.name + '] ' + statusName(x.status) + (x.mine ? ' (담당)' : ''));
+    (def ? def.log : []).forEach(f => {
+      const v = String((x.log || {})[f.key] || '').trim();
+      if (v && f.key !== 'why') o.push('    - ' + f.label + ' ' + v.replace(/\n/g, ' '));
+    });
+  });
+  o.push('');
+  o.push('■ 직접 쓴 대사 ' + (r.lines || []).length + '줄 · 가사 ' + (r.lyrics || []).length + '줄');
+  (r.lines || []).forEach(x => o.push('  ' + (x.kind === 'dir' ? '(지문) ' : castName(x.who) + ' — ') + x.text));
+  (r.lyrics || []).forEach(x => o.push('  ♪ ' + x.text));
+  o.push('');
+  o.push('■ 성찰');
+  (r.reflects || []).forEach(x => o.push('  ' + x.lesson + '차시 — 한 것: ' + (x.did || '') +
+    ' / 막힌 것: ' + (x.stuck || '') + ' / 다음: ' + (x.next || '')));
+  o.push('');
+  o.push('■ 모둠원이 써 준 한 줄');
+  (r.praiseIn || []).forEach(p => o.push('  ' + p.fromName + ': ' + p.text));
+  o.push('');
+  o.push('■ 다른 모둠 감상 · 투표 이유');
+  (r.reviews || []).forEach(x => o.push('  ' + x.group + '모둠 — ' + x.text));
+  (r.votes || []).forEach(x => o.push('  [' + voteCatName(x.cat) + '] ' + x.group + '모둠 — ' + (x.why || '')));
+
+  const text = o.join('\n');
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(
+      () => toast(s.name + ' 학생 자료를 복사했습니다', 'ok', 3500),
+      () => toast('복사하지 못했습니다', 'bad'));
+  } else {
+    toast('이 브라우저는 복사를 지원하지 않습니다', 'warn');
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ *  7-3. 시사회
+ * -------------------------------------------------------------------------*/
+async function loadGal() {
+  const cls = $('#selClass5').value || CLASS_LIST[0];
+  $('#galOut').innerHTML = '<p class="dim">불러오는 중…</p>';
+  const res = await apiPost('xTeacherGallery', { idToken: Auth.idToken, cls: cls }, 45000);
+  if (!res.ok) { xErr(res, '#galOut'); return; }
+  X.gal = res;
+  paintGal();
+}
+
+function paintGal() {
+  const r = X.gal; if (!r) return;
+  $('#galKpis').innerHTML =
+    kpi('투표한 학생', r.votedN + ' / ' + r.people, r.votedN >= r.people ? 'hi' : '') +
+    kpi('감상을 남긴 학생', r.reviewedN + ' / ' + r.people, r.reviewedN >= r.people ? 'hi' : '') +
+    kpi('남긴 감상', r.reviews.length + '줄', '') +
+    kpi('던진 표', r.votes.length + '표', '');
+
+  let h = '';
+  VOTE_CATS.forEach(c => {
+    const t = (r.tally || {})[c.key] || {};
+    const rank = r.groups.map(g => ({ g: g.group, n: t[g.group] || 0, title: g.numberTitle || g.actTitle }))
+      .sort((a, b) => b.n - a.n);
+    const top = rank.length ? rank[0].n : 0;
+    h += '<div class="card"><div class="own-tag">' + esc(c.hint) + '</div><h2>' + esc(c.name) + '</h2>' +
+      rank.map(x => '<div class="galbar' + (x.n && x.n === top ? ' top' : '') + '">' +
+        '<div class="gb-n">' + x.g + '모둠</div>' +
+        '<div class="gb-t">' + esc(x.title || '') + '</div>' +
+        '<div class="gb-bar"><span style="width:' + (top ? Math.round(x.n / top * 100) : 0) + '%"></span></div>' +
+        '<div class="gb-v">' + x.n + '표</div></div>').join('') +
+      '<details style="margin-top:10px"><summary class="dim" style="cursor:pointer; font-size:.88rem">' +
+        '고른 이유 모아 보기 (' + r.votes.filter(v => v.cat === c.key).length + '개)</summary>' +
+        r.votes.filter(v => v.cat === c.key).map(v =>
+          '<div class="rs-line"><span class="k">' + esc(v.name) + ' → ' + v.group + '모둠</span>' +
+          '<span class="v">' + esc(v.why || '') + '</span></div>').join('') +
+      '</details></div>';
+  });
+
+  h += '<div class="card"><h2>모둠이 받은 한 줄 감상</h2>';
+  r.groups.forEach(g => {
+    const list = r.reviews.filter(x => x.group === g.group);
+    h += '<div class="rs-stage"><div class="rs-sn">' + g.group + '모둠 · 제' + g.actNo + '막 ' +
+      esc(g.actTitle || '') + ' <span class="dim">' + list.length + '줄</span></div>' +
+      (list.length
+        ? list.map(x => '<div class="rs-line"><span class="k">' + esc(x.name) + '</span>' +
+            '<span class="v">' + esc(x.text) + '</span></div>').join('')
+        : '<p class="dim">아직 받은 감상이 없습니다.</p>') + '</div>';
+  });
+  h += '</div>';
+  $('#galOut').innerHTML = h;
 }

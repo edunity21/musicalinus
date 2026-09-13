@@ -11,7 +11,7 @@
 
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="style.css?v=1.6.0">
+<link rel="stylesheet" href="style.css?v=2.0.0">
 </head>
 
 <body>
@@ -123,7 +123,9 @@
         <button class="tab" role="tab" data-tab="act"    aria-selected="false">막 설계</button>
         <button class="tab" role="tab" data-tab="scene"  aria-selected="false">장면 대본 <span class="dot" id="dotScene">0</span></button>
         <button class="tab" role="tab" data-tab="number" aria-selected="false">넘버 <span class="dot" id="dotNumber">0</span></button>
+        <button class="tab" role="tab" data-tab="make"   aria-selected="false">제작 <span class="dot" id="dotMake">0</span></button>
         <button class="tab" role="tab" data-tab="files"  aria-selected="false">파일 <span class="dot" id="dotFiles">0</span></button>
+        <button class="tab" role="tab" data-tab="gallery" aria-selected="false">갤러리</button>
         <button class="tab" role="tab" data-tab="out"    aria-selected="false">미리보기·제출</button>
       </nav>
     </div>
@@ -321,13 +323,73 @@
       </div>
     </section>
 
-    <!-- ---------- 탭 5 · 파일 ---------- -->
+    <!-- ---------- 탭 5 · 제작 (v2.0) ---------- -->
+    <section class="panel" id="panel-make" role="tabpanel" hidden>
+      <div class="rolebar" id="roleBar6"></div>
+
+      <div class="notice">
+        <b>여기는 '만든 것'이 아니라 '우리가 무엇을 판단했는가'를 남기는 곳입니다.</b><br>
+        AI가 만들어 준 음원과 영상은 그 자체로는 우리 것이 아닙니다.
+        <b>무엇을 넣었고, 무엇을 버렸고, 왜 그렇게 했는지</b> — 네 번째 칸이 우리 몫입니다.
+        여기 적은 말이 학기말에 선생님이 읽는 기록이 됩니다.
+      </div>
+
+      <div class="stage-sum" id="stageSum"></div>
+      <div id="stageBoard"></div>
+
+      <!-- 성찰 세 줄 -->
+      <div class="card" id="reflectCard">
+        <div class="own-tag">오늘의 기록 · 나만 씁니다</div>
+        <h2>성찰 세 줄</h2>
+        <p class="muted" style="font-size:.9rem">차시가 끝날 때 세 줄만 적습니다.
+          잘한 것을 적는 칸이 아니라 <b>무엇을 하다가 어디서 막혔는지</b>를 적는 칸입니다.</p>
+        <div class="row-wrap" style="margin-bottom:10px">
+          <label class="field" style="flex:0 0 130px"><span>몇 차시</span>
+            <select class="t-select" id="refLesson"></select></label>
+          <span class="dim" id="refSaved" style="align-self:flex-end; padding-bottom:10px; font-size:.85rem"></span>
+        </div>
+        <div id="refFields"></div>
+        <div class="btnrow" style="margin-top:10px">
+          <button class="btn primary" id="btnSaveReflect">이 차시 기록 저장</button>
+        </div>
+        <div id="refList" style="margin-top:14px"></div>
+      </div>
+
+      <!-- 동료 인정 -->
+      <div class="card" id="praiseCard">
+        <div class="own-tag">마지막 차시에 · 모둠원에게</div>
+        <h2>고마운 한 줄</h2>
+        <p class="muted" style="font-size:.9rem">모둠원 한 사람씩, <b>그 친구가 해낸 일</b>을 한 줄로 적습니다.
+          "잘했다"가 아니라 <b>무엇을 했는지</b>를 적어야 합니다.
+          <span class="dim">예) 자막이 안 맞을 때 스무 번 다시 맞춘 사람이 지훈이다</span></p>
+        <div id="praiseBox"></div>
+        <div id="praiseIn" style="margin-top:14px"></div>
+      </div>
+    </section>
+
+    <!-- ---------- 탭 6 · 파일 ---------- -->
     <section class="panel" id="panel-files" role="tabpanel" hidden>
       <div class="rolebar" id="roleBar5"></div>
 
       <div class="notice">
         <b>파일은 모둠원 누구나</b> 올리고 지울 수 있습니다. 남이 올린 것을 지우려면 발표 리더에게 말하세요.<br>
-        <b>음원과 그림</b>은 여기서 바로 올립니다. <b>동영상</b>은 파일이 너무 커서 구글 폼으로 냅니다.
+        <b>음원과 그림</b>은 여기서 바로 올립니다. <b>캔바·런웨이·유튜브</b>는 아래 [주소로 내기]를 쓰세요 — 용량을 쓰지 않습니다.
+        <b>동영상 파일</b>은 너무 커서 구글 폼으로 냅니다.
+      </div>
+
+      <!-- ★ v2.0 — 올리기 전에 어느 공정의 무엇인지, 누가 만들었는지 고릅니다 -->
+      <div class="card" id="tagCard">
+        <div class="own-tag">올리기 전에 · 두 칸만</div>
+        <h2>이건 어느 공정의 무엇인가요</h2>
+        <p class="muted" style="font-size:.9rem">여기서 고른 것이 파일 이름 앞에 붙습니다.
+          나중에 선생님이 <b>누가 무엇을 만들었는지</b> 알아볼 수 있게 하는 표시입니다.</p>
+        <div class="row-wrap">
+          <label class="field" style="flex:1 1 240px"><span>어느 공정</span>
+            <select class="t-select" id="upStage"></select></label>
+          <label class="field" style="flex:1 1 200px"><span>만든 사람</span>
+            <select class="t-select" id="upMaker"></select></label>
+        </div>
+        <p class="dim" id="upNamePeek" style="margin-top:8px; font-size:.85rem"></p>
       </div>
 
       <!-- 음원·이미지 -->
@@ -375,8 +437,50 @@
       <div class="card hidden" id="videoOff">
         <h2>동영상 내기</h2>
         <p class="muted">선생님이 아직 영상 제출용 폼을 연결하지 않으셨습니다.
-          음원과 그림은 위에서 그대로 올리면 됩니다.</p>
+          음원과 그림은 위에서 그대로 올리면 되고, 영상은 아래 <b>[주소로 내기]</b>를 쓰세요.</p>
       </div>
+
+      <!-- ★ v2.0 — 주소로 내기 (캔바·런웨이·유튜브) -->
+      <div class="card" id="linkCard">
+        <div class="own-tag">용량을 쓰지 않습니다</div>
+        <h2>주소로 내기</h2>
+        <p class="muted" style="font-size:.9rem">
+          캔바 작업물, 런웨이 영상, 유튜브에 올린 것은 <b>파일 대신 주소</b>로 냅니다.
+          캔바는 [공유] → [보기 가능한 링크], 유튜브는 <b>일부공개</b>로 올리고 주소를 복사하세요.</p>
+        <div class="row-wrap" style="margin-bottom:10px">
+          <label class="field" style="flex:1 1 200px"><span>어느 공정</span>
+            <select class="t-select" id="lkStage"></select></label>
+          <label class="field" style="flex:0 0 180px"><span>어디 것</span>
+            <select class="t-select" id="lkKind"></select></label>
+        </div>
+        <div class="row-wrap">
+          <label class="field" style="flex:1 1 220px"><span>이름 붙이기</span>
+            <input class="t-input" id="lkTitle" maxlength="60" placeholder="예) 앨범 커버 최종본"></label>
+          <label class="field" style="flex:2 1 300px"><span>주소</span>
+            <input class="t-input" id="lkUrl" maxlength="600" placeholder="https://..."></label>
+        </div>
+        <div class="btnrow" style="margin-top:10px">
+          <button class="btn primary" id="btnAddLink">주소 내기</button>
+        </div>
+        <div id="linkList" style="margin-top:14px"></div>
+      </div>
+    </section>
+
+    <!-- ---------- 탭 7 · 갤러리 (v2.0) ---------- -->
+    <section class="panel" id="panel-gallery" role="tabpanel" hidden>
+      <div class="notice">
+        <b>학급 시사회.</b> 여섯 모둠이 만든 것을 여기서 봅니다.
+        다른 모둠 <b>두 곳 이상</b>에 한 줄 감상을 남기고, 네 부문에 각각 한 표씩 던지세요.
+        <b>우리 모둠에는 투표할 수 없습니다.</b> 쓴 감상은 이름 없이 그 모둠에 전해집니다.
+      </div>
+
+      <div class="btnrow no-print" style="margin-bottom:14px">
+        <button class="btn" id="btnLoadGallery">새로 받아오기</button>
+        <span class="dim" id="galleryAt" style="align-self:center; font-size:.85rem"></span>
+      </div>
+
+      <div id="voteBox"></div>
+      <div id="galleryList"></div>
     </section>
 
     <!-- ---------- 탭 6 · 미리보기 · 제출 ---------- -->
@@ -409,10 +513,10 @@
   </div>
 </div>
 
-<script src="config.js?v=1.6.0"></script>
-<script src="story.js?v=1.6.0"></script>
-<script src="common.js?v=1.6.0"></script>
-<script src="app.js?v=1.6.0"></script>
+<script src="config.js?v=2.0.0"></script>
+<script src="story.js?v=2.0.0"></script>
+<script src="common.js?v=2.0.0"></script>
+<script src="app.js?v=2.0.0"></script>
 <script src="https://accounts.google.com/gsi/client?onload=onGsiLoad" async defer></script>
 </body>
 </html>

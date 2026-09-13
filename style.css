@@ -1341,3 +1341,323 @@ body.teacher .seat.full { background: var(--accent-soft); color: var(--accent); 
 }
 .edit-warn ul { margin: 6px 0 0; padding-left: 18px; }
 .edit-warn li { margin: 2px 0; }
+
+/* ===========================================================================
+ *  17. 제작 공정 · 세특 자료 · 시사회 — v2.0 (2026-09-13)
+ *
+ *  색은 15번 구역의 파스텔 토큰을 그대로 씁니다.
+ *  공정 상태 세 가지만 따로 색을 둡니다.
+ * =========================================================================*/
+
+:root {
+  --st-todo:  #9AAEA7;   /* 아직 */
+  --st-doing: #C98A2B;   /* 하는 중 */
+  --st-done:  #0B7A4E;   /* 냈음 */
+  --why:      #A8481A;   /* 「왜 그렇게 했나」 — 세특이 나오는 칸 */
+  --why-soft: #FBF0E8;
+}
+body.teacher { --why: #A8481A; }
+
+/* ---- 제작 탭 위쪽 요약 -------------------------------------------------*/
+.stage-sum {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px;
+}
+.stage-sum .ss-item {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 12px 14px;
+}
+.stage-sum .k { font-size: .78rem; color: var(--dim); margin-bottom: 4px; }
+.stage-sum .v { font-size: 1.3rem; font-weight: 800; color: var(--text); }
+.stage-sum .why .v { color: var(--why); }
+@media (max-width: 620px) { .stage-sum { grid-template-columns: 1fr 1fr; } }
+
+/* ---- 공정 카드 ---------------------------------------------------------*/
+.stagecard {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
+  margin-bottom: 10px; overflow: hidden;
+}
+.stagecard.done  { border-color: var(--accent); }
+.stagecard.doing { border-color: var(--st-doing); }
+.stagecard.extra { background: var(--card-2); }
+
+.st-head {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 14px 16px; background: none; border: 0; text-align: left;
+  font: inherit; color: inherit; cursor: pointer; min-height: var(--tap);
+}
+.st-head:hover { background: var(--card-2); }
+.st-no {
+  flex: none; font-size: .92rem; font-weight: 800; color: var(--dim);
+  font-variant-numeric: tabular-nums; width: 26px;
+}
+.stagecard.done .st-no  { color: var(--accent); }
+.stagecard.doing .st-no { color: var(--st-doing); }
+.st-t { flex: 1 1 auto; min-width: 0; display: block; }
+.st-name { display: block; font-weight: 700; font-size: 1rem; color: var(--text); }
+.st-tool { display: block; font-size: .82rem; color: var(--dim); margin-top: 2px; }
+.st-opt {
+  font-size: .72rem; font-weight: 700; color: var(--dim);
+  border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; vertical-align: middle;
+}
+.st-meta { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.st-owner { font-size: .82rem; color: var(--muted); }
+.st-badge {
+  font-size: .78rem; font-weight: 700; border-radius: 999px; padding: 3px 10px;
+  background: var(--card-3); color: var(--muted); white-space: nowrap;
+}
+.st-badge.doing { background: #FBEFD8; color: #8A5B10; }
+.st-badge.done  { background: var(--accent-soft); color: var(--accent); }
+.st-fill {
+  font-size: .76rem; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.st-caret { flex: none; color: var(--dim); font-size: .9rem; }
+@media (max-width: 560px) {
+  .st-head { flex-wrap: wrap; gap: 8px; }
+  .st-meta { width: 100%; justify-content: flex-start; }
+}
+
+.st-body { padding: 0 16px 16px; border-top: 1px solid var(--line); }
+.st-what { margin: 12px 0 6px; font-size: .93rem; color: var(--text); line-height: 1.7; }
+.st-out  { margin: 0; font-size: .88rem; color: var(--muted); }
+.st-mine {
+  align-self: flex-end; padding-bottom: 10px; font-size: .84rem;
+  color: var(--accent); font-weight: 700;
+}
+.st-ask { margin: 6px 0 12px; }
+.st-ask summary { cursor: pointer; font-weight: 700; font-size: .9rem; color: var(--muted); }
+.st-ask .think { margin-top: 8px; }
+
+/* ---- 제작 일지 네 칸 ---------------------------------------------------*/
+.loggrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 720px) { .loggrid { grid-template-columns: 1fr; } }
+.logfield {
+  background: var(--card-2); border: 1px solid var(--line);
+  border-radius: var(--r-sm); padding: 10px 12px 12px;
+}
+.logfield.why { background: var(--why-soft); border-color: var(--why); }
+.lg-l {
+  font-size: .82rem; font-weight: 800; color: var(--muted);
+  margin-bottom: 6px; letter-spacing: -.01em;
+}
+.logfield.why .lg-l { color: var(--why); }
+.logfield textarea {
+  width: 100%; min-height: 92px; resize: vertical;
+  background: var(--card); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 9px 10px; font: inherit; font-size: .92rem; line-height: 1.65;
+}
+.logfield textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.logfield.why textarea:focus { outline-color: var(--why); }
+.lg-h { font-size: .78rem; color: var(--dim); margin-top: 6px; line-height: 1.55; }
+.logfield.why .lg-h { color: var(--why); }
+
+.st-att { margin-top: 12px; }
+.st-att .tagpill { margin: 0 6px 6px 0; text-decoration: none; }
+.st-att-none { font-size: .84rem; margin-top: 12px; }
+
+/* ---- 파일 이름 앞의 공정 표시 -----------------------------------------*/
+.ftag {
+  display: inline-block; font-size: .74rem; font-weight: 700;
+  background: var(--accent-soft); color: var(--accent);
+  border-radius: 3px; padding: 1px 6px; margin-right: 6px; vertical-align: 1px;
+}
+
+/* ---- 주소로 내기 -------------------------------------------------------*/
+.linkitem {
+  display: flex; gap: 12px; align-items: flex-start;
+  background: var(--card-2); border: 1px solid var(--line);
+  border-radius: var(--r-sm); padding: 10px 12px; margin-bottom: 8px;
+}
+.linkitem .grow { flex: 1 1 auto; min-width: 0; }
+.linkitem .nm { font-weight: 700; font-size: .94rem; }
+.linkitem .sub { font-size: .8rem; color: var(--dim); margin-top: 2px; }
+.linkitem .url {
+  font-size: .78rem; color: var(--muted); margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.linkitem .acts { flex: none; display: flex; gap: 6px; }
+
+/* ---- 성찰 · 고마운 한 줄 ----------------------------------------------*/
+.refitem { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.refitem .rl {
+  flex: none; width: 54px; font-weight: 800; font-size: .84rem; color: var(--accent);
+}
+.refitem .rt { flex: 1 1 auto; font-size: .88rem; line-height: 1.7; color: var(--muted); }
+.refitem .rt b { color: var(--text); }
+
+.praiserow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.praiserow .pw { flex: 0 0 150px; font-weight: 700; font-size: .92rem; }
+.praiserow input { flex: 1 1 220px; }
+.praisegot {
+  background: var(--accent-soft); border-radius: var(--r-sm);
+  padding: 8px 12px; margin-bottom: 6px; font-size: .9rem; line-height: 1.6;
+}
+.praisegot b { color: var(--accent); }
+
+/* ---- 갤러리 -----------------------------------------------------------*/
+.gcard {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r); padding: 16px; margin-bottom: 12px;
+}
+.gcard.mine { border-color: var(--accent); background: var(--card-2); }
+.g-no { font-size: .8rem; font-weight: 800; color: var(--accent); letter-spacing: .02em; }
+.g-t  { font-size: 1.14rem; font-weight: 800; margin-top: 3px; }
+.g-n  { font-size: .95rem; color: var(--muted); margin-top: 2px; }
+.g-l  { font-size: .88rem; color: var(--dim); margin-top: 4px; }
+.g-m  { font-size: .82rem; color: var(--dim); margin-top: 6px; }
+.g-lyr {
+  background: var(--card-3); border-radius: var(--r-sm);
+  padding: 10px 12px; margin: 10px 0; font-size: .9rem; line-height: 1.8; color: var(--muted);
+}
+.g-att { margin: 8px 0; }
+.g-att .tagpill { margin: 0 6px 6px 0; text-decoration: none; }
+.g-done { font-size: .82rem; color: var(--dim); }
+.g-own  { font-size: .86rem; margin-top: 10px; }
+.g-rev  { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
+.g-rev .field { flex: 1 1 260px; margin: 0; }
+.g-got { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.gg {
+  font-size: .88rem; color: var(--muted); line-height: 1.65;
+  padding: 5px 0 5px 12px; border-left: 2px solid var(--line); margin-bottom: 4px;
+}
+.gg.mine { border-left-color: var(--accent); color: var(--text); }
+
+/* ---- 투표 -------------------------------------------------------------*/
+.voterow { padding: 12px 0; border-top: 1px solid var(--line); }
+.voterow:first-of-type { border-top: 0; }
+.vc-h { font-size: .96rem; margin-bottom: 6px; }
+.vc-h .dim { font-size: .84rem; font-weight: 400; }
+.vtally { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.vt {
+  font-size: .8rem; background: var(--card-3); border-radius: 999px;
+  padding: 3px 10px; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.vt b { color: var(--text); }
+.vtally-off { font-size: .8rem; margin-top: 8px; }
+
+/* ===========================================================================
+ *  교사 화면 — 제작 현황 · 세특 자료 · 시사회
+ * =========================================================================*/
+
+.stagetable { min-width: 760px; }
+.stagetable th.stcol { text-align: center; width: 44px; padding: 6px 2px; }
+.stagetable th.stcol.extra { opacity: .55; }
+.stagetable .sc-no { display: block; font-size: .72rem; color: var(--dim); }
+.stagetable .sc-ic { display: block; font-size: 1rem; }
+.stcell {
+  text-align: center; cursor: pointer; padding: 8px 2px;
+  border-left: 1px solid var(--line);
+}
+.stcell:hover { background: var(--card-3); }
+.stcell .mk { display: block; font-size: 1.05rem; line-height: 1.1; color: var(--st-todo); }
+.stcell .ln { display: block; font-size: .72rem; color: var(--dim); font-variant-numeric: tabular-nums; }
+.stcell.doing .mk { color: var(--st-doing); }
+.stcell.done  .mk { color: var(--st-done); }
+.stcell.done  { background: var(--accent-soft); }
+td.num.hi   { color: var(--accent); font-weight: 800; }
+td.num.zero { color: var(--dim); }
+.prow.on   { background: var(--accent-soft); }
+.prow.thin { opacity: .6; }
+.prow:hover { background: var(--card-3); }
+
+.recordcard { margin-top: 14px; }
+.logshow { margin-bottom: 12px; }
+.logshow .lg-v {
+  background: var(--card-2); border: 1px solid var(--line);
+  border-radius: var(--r-sm); padding: 9px 12px;
+  font-size: .9rem; line-height: 1.7; white-space: normal;
+}
+.logshow.why .lg-l { color: var(--why); }
+.logshow.why .lg-v { background: var(--why-soft); border-color: var(--why); }
+
+/* ---- 세특 자료 한 장 ---------------------------------------------------*/
+.recordsheet {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r); padding: 22px 24px; margin-top: 14px;
+}
+.rs-head { border-bottom: 2px solid var(--text); padding-bottom: 12px; margin-bottom: 6px; }
+.rs-title { font-size: .82rem; font-weight: 800; color: var(--dim); letter-spacing: .06em; }
+.rs-who   { font-size: 1.3rem; font-weight: 800; margin-top: 4px; }
+.rs-sub   { font-size: .92rem; color: var(--muted); margin-top: 3px; line-height: 1.6; }
+.rs-at    { font-size: .78rem; color: var(--dim); margin-top: 6px; }
+
+.rs-block { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.rs-block:last-of-type { border-bottom: 0; }
+.rs-block h3 { margin: 0 0 8px; font-size: 1rem; font-weight: 800; }
+.rs-note { margin: 0 0 10px; font-size: .82rem; color: var(--dim); }
+
+.rs-why {
+  background: var(--why-soft); border-left: 3px solid var(--why);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0; padding: 10px 14px; margin-bottom: 8px;
+}
+.rs-wh { font-size: .82rem; font-weight: 800; color: var(--why); margin-bottom: 4px; }
+.rs-wt { font-size: .95rem; line-height: 1.75; }
+
+.rs-stage { margin-bottom: 14px; }
+.rs-sn { font-weight: 800; font-size: .94rem; margin-bottom: 6px; }
+/* 일지 칸 이름이 길어(① 우리가 고친 것 · 버린 것) 옆에 두면 줄이 꺾입니다.
+   이름을 위에, 내용을 아래에 두어 인쇄본에서도 읽기 좋게 했습니다. */
+.rs-lg { display: block; padding: 6px 0 8px; font-size: .9rem; line-height: 1.7; }
+.rs-lg .k {
+  display: block; font-size: .78rem; font-weight: 700; color: var(--dim);
+  margin-bottom: 2px; letter-spacing: -.01em;
+}
+.rs-lg .v { display: block; color: var(--text); padding-left: 2px; }
+
+.rs-line { display: flex; gap: 10px; padding: 4px 0; font-size: .9rem; line-height: 1.65; }
+.rs-line .k {
+  flex: 0 0 110px; color: var(--dim); font-weight: 700; text-align: right;
+}
+.rs-line .v { flex: 1 1 auto; }
+.rs-ref { display: flex; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.rs-ref .rl { flex: 0 0 54px; font-weight: 800; font-size: .84rem; color: var(--accent); }
+.rs-ref .rt { flex: 1 1 auto; font-size: .88rem; line-height: 1.7; color: var(--muted); }
+.rs-ref .rt b { color: var(--text); }
+.rs-praise {
+  background: var(--accent-soft); border-radius: var(--r-sm);
+  padding: 8px 12px; margin-bottom: 6px; font-size: .9rem; line-height: 1.6;
+}
+.rs-foot { font-size: .82rem; color: var(--dim); border-top: 2px solid var(--text); padding-top: 10px; margin-top: 8px; }
+.tag-own {
+  font-size: .72rem; font-weight: 700; background: var(--accent); color: var(--accent-in);
+  border-radius: 3px; padding: 1px 6px; vertical-align: 1px;
+}
+@media (max-width: 560px) {
+  .rs-lg, .rs-line { flex-direction: column; gap: 2px; }
+  .rs-lg .k, .rs-line .k { flex: none; text-align: left; }
+  .recordsheet { padding: 16px; }
+}
+
+/* ---- 시사회 집계 막대 -------------------------------------------------*/
+.galbar { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+.galbar .gb-n { flex: 0 0 60px; font-weight: 800; font-size: .88rem; }
+.galbar .gb-t {
+  flex: 0 0 150px; font-size: .84rem; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.galbar .gb-bar { flex: 1 1 auto; height: 10px; background: var(--card-3); border-radius: 999px; overflow: hidden; }
+.galbar .gb-bar span { display: block; height: 100%; background: var(--line); border-radius: 999px; }
+.galbar.top .gb-bar span { background: var(--accent); }
+.galbar.top .gb-n { color: var(--accent); }
+.galbar .gb-v {
+  flex: 0 0 44px; text-align: right; font-size: .84rem;
+  font-variant-numeric: tabular-nums; color: var(--muted);
+}
+@media (max-width: 560px) { .galbar .gb-t { display: none; } }
+
+/* ---- 인쇄 — 세특 자료 한 장만 깨끗하게 --------------------------------*/
+@media print {
+  #panel-record .notice,
+  #panel-record .tb-scroll,
+  #panel-record .row-wrap { display: none !important; }
+  .recordsheet {
+    border: 0; padding: 0; margin: 0;
+    background: #fff; color: #000;
+  }
+  .recordsheet a { color: #000; text-decoration: none; }
+  .rs-why { background: #F4F4F4; border-left-color: #000; }
+  .rs-praise { background: #F4F4F4; }
+  .rs-block { break-inside: avoid; page-break-inside: avoid; }
+  .rs-stage { break-inside: avoid; page-break-inside: avoid; }
+  .stagecard { break-inside: avoid; page-break-inside: avoid; }
+}

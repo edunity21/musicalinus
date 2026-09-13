@@ -10,7 +10,7 @@
  *  서버가 하나로 합쳐 주기 때문에 서로의 글이 지워지지 않습니다.
  * ==========================================================================*/
 
-const APP_VERSION = 'student v1.6.0 (2026-09-09) 정원5';
+const APP_VERSION = 'student v2.0.0 (2026-09-13) 제작공정';
 
 /* ---------------------------------------------------------------------------
  *  0. 지금 상태
@@ -298,6 +298,7 @@ async function startApp() {
 
   renderStory();
   await sync(true);
+  loadStages(false);     /* ★ v2.0 — 제작 공정은 뒤에서 조용히 받아 둡니다 */
   poll();
   S.pollTimer = setInterval(poll, POLL_SECONDS * 1000);
   S.syncTimer = setInterval(() => sync(false), SYNC_SECONDS * 1000);
@@ -359,6 +360,9 @@ function showTab(name) {
   $$('.tab').forEach(t => t.setAttribute('aria-selected', t.dataset.tab === name ? 'true' : 'false'));
   $$('.panel').forEach(p => { p.hidden = (p.id !== 'panel-' + name); });
   if (name === 'out') { renderChecks(); renderPreview(); }
+  /* ★ v2.0 — 제작·갤러리 탭은 열 때 서버에서 받아옵니다 */
+  if (name === 'make' && !MK.loaded) loadStages(true);
+  if (name === 'gallery') loadGallery(!MK.gallery);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -489,6 +493,7 @@ function paintAll() {
   paintArrange();
   paintFiles();
   paintVideos();
+  paintMakeBits();       /* ★ v2.0 — 파일 태그·링크 칸의 모둠원 목록 */
   applyLocks();          /* 잠금은 다시 그린 뒤 마지막에 한 번 */
   paintProgress();
   $('#nowName').textContent = '제' + (S.work.actNo || S.group) + '막 · ' + (S.work.actTitle || '(제목 없음)');
@@ -514,7 +519,8 @@ function paintRoleBars() {
     '<span class="tagpill"><span class="sw" style="background:' + (c ? c.color : '#666') + '"></span>' +
       esc(castName(S.role)) + ' 역</span>' +
     '<span class="dim" style="font-size:.84rem">' + esc(jobOf(S.job) ? jobOf(S.job).duty : '') + '</span>';
-  ['#roleBar', '#roleBar2', '#roleBar3', '#roleBar4', '#roleBar5'].forEach(sel => { const el = $(sel); if (el) el.innerHTML = html; });
+  ['#roleBar', '#roleBar2', '#roleBar3', '#roleBar4', '#roleBar5', '#roleBar6']
+    .forEach(sel => { const el = $(sel); if (el) el.innerHTML = html; });
   const mates = matesHtml();
   const el = $('#sceneMates'); if (el) el.innerHTML = mates;
 }
@@ -1075,7 +1081,7 @@ async function runQueue() {
 
   const res = await apiPost('upload', {
     idToken: Auth.idToken, sid: S.sid,
-    name: f.name, mime: f.type || guessMime(f.name), data: b64
+    name: tagFileName(f.name), mime: f.type || guessMime(f.name), data: b64
   }, 120000);
 
   UP.busy = false;
@@ -1136,7 +1142,7 @@ function paintFiles() {
       '<div class="top">' +
         '<div class="ic">' + icon + '</div>' +
         '<div class="grow">' +
-          '<div class="nm">' + esc(f.name) + '</div>' +
+          '<div class="nm">' + fileTagHtml(f.name) + esc(bareFileName(f.name)) + '</div>' +
           '<div class="sub">' + esc(f.byName || '') + ' · ' +
             Math.max(1, Math.round((f.size || 0) / 1024)) + 'KB · ' + esc(f.at || '') + '</div>' +
         '</div>' +
@@ -1222,4 +1228,629 @@ function paintVideos() {
           '<span class="at">' + esc(v.at || '') + '</span>' +
         '</div>').join('')
     : '<p class="dim">아직 낸 영상이 없습니다.</p>';
+}
+
+/* ===========================================================================
+ *  8. 제작 공정 · 성찰 · 동료 인정 · 갤러리 — v2.0 (2026-09-13)
+ *
+ *  서버는 Stage.gs 가 맡습니다. Code.gs 는 건드리지 않았습니다.
+ * =========================================================================*/
+
+const MK = {
+  stages: [], links: [], reflects: [], praiseIn: [], praiseOut: [],
+  gallery: null, galleryAt: 0,
+  loaded: false, busy: false, open: {}, dirty: {}, timer: null
+};
+
+const stageIdx = k => STAGES.findIndex(s => s.key === k);
+const mkStage = k => MK.stages.find(s => s.stage === k) ||
+  { stage: k, status: 'todo', owner: '', ownerName: '', log: {}, at: '', by: '', byName: '' };
+
+/* ---- 파일 이름에 붙이는 표시 -------------------------------------------
+ *  서버(Code.gs)를 고치지 않고도 '어느 공정의 무엇을 누가 만들었는지'를
+ *  남기려고, 올리기 직전에 파일 이름 앞에 표시를 붙입니다.
+ *    [2공정 민준] demo_A.mp3
+ *  이 표시는 교사 드라이브와 제출파일 시트에도 그대로 남습니다.
+ * ----------------------------------------------------------------------*/
+const TAG_RE = /^\[(\d{1,2})공정\s+([^\]]{0,12})\]\s*/;
+
+function tagFileName(name) {
+  const st = $('#upStage') ? $('#upStage').value : '';
+  const mk = $('#upMaker') ? $('#upMaker').value : '';
+  if (!st) return name;
+  const s = stageOf(st);
+  const who = (S.members.find(m => m.sid === mk) || {}).name || S.name || '';
+  if (!s) return name;
+  return '[' + s.no + '공정 ' + who + '] ' + name;
+}
+function bareFileName(name) { return String(name || '').replace(TAG_RE, ''); }
+function fileTagHtml(name) {
+  const m = TAG_RE.exec(String(name || ''));
+  if (!m) return '';
+  const s = STAGES.find(x => String(x.no) === m[1]);
+  return '<span class="ftag">' + esc((s ? s.icon + ' ' + s.name : m[1] + '공정')) +
+         (m[2] ? ' · ' + esc(m[2]) : '') + '</span> ';
+}
+
+/* ---------------------------------------------------------------------------
+ *  8-1. 연결
+ * -------------------------------------------------------------------------*/
+window.addEventListener('DOMContentLoaded', function () {
+  const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); };
+  on('#btnAddLink', 'click', addLink);
+  on('#btnSaveReflect', 'click', saveReflect);
+  on('#btnLoadGallery', 'click', () => loadGallery(true));
+  on('#lkStage', 'change', peekLinkKind);
+  on('#lkUrl', 'input', peekLinkKind);
+  on('#upStage', 'change', peekUpName);
+  on('#upMaker', 'change', peekUpName);
+
+  /* 차시 고르기 */
+  const sel = $('#refLesson');
+  if (sel) {
+    const n = (typeof LESSON_COUNT === 'number' ? LESSON_COUNT : 8);
+    let h = '';
+    for (let i = 1; i <= n; i++) h += '<option value="' + i + '">' + i + '차시</option>';
+    sel.innerHTML = h;
+    sel.addEventListener('change', paintReflect);
+  }
+  /* 성찰 세 칸 */
+  const rf = $('#refFields');
+  if (rf) {
+    rf.innerHTML = REFLECT_FIELDS.map(f =>
+      '<label class="field" style="margin-bottom:10px"><span>' + esc(f.label) + '</span>' +
+        '<textarea class="t-input" data-ref="' + f.key + '" maxlength="400" ' +
+        'style="min-height:60px; font-family:inherit; font-size:.95rem" ' +
+        'placeholder="' + esc(f.ph) + '"></textarea></label>').join('');
+  }
+});
+
+/* 파일·링크 칸의 선택지를 채웁니다. paintAll 에서 부릅니다. */
+function paintMakeBits() {
+  const stOpts = (withBlank) =>
+    (withBlank ? '<option value="">— 고르지 않음 —</option>' : '') +
+    STAGES.map(s => '<option value="' + s.key + '">' + s.no + '. ' + esc(s.name) +
+      (s.need ? '' : ' (선택)') + '</option>').join('');
+
+  const up = $('#upStage');
+  if (up && !up.options.length) up.innerHTML = stOpts(true);
+  const lk = $('#lkStage');
+  if (lk && !lk.options.length) lk.innerHTML = stOpts(true);
+  const kd = $('#lkKind');
+  if (kd && !kd.options.length) {
+    kd.innerHTML = LINK_KINDS.map(k => '<option value="' + k.key + '">' + esc(k.name) + '</option>').join('');
+  }
+  const mk = $('#upMaker');
+  if (mk && S.members.length) {
+    const keep = mk.value || S.sid;
+    mk.innerHTML = S.members.map(m =>
+      '<option value="' + esc(m.sid) + '"' + (m.sid === keep ? ' selected' : '') + '>' +
+      esc(m.name) + (m.sid === S.sid ? ' (나)' : '') + '</option>').join('');
+  }
+  peekUpName();
+}
+
+function peekUpName() {
+  const el = $('#upNamePeek'); if (!el) return;
+  const st = $('#upStage') ? $('#upStage').value : '';
+  if (!st) { el.textContent = '공정을 고르지 않으면 파일 이름 그대로 올라갑니다.'; return; }
+  el.innerHTML = '올라갈 이름 — <b>' + esc(tagFileName('우리음원.mp3')) + '</b> 처럼 앞에 표시가 붙습니다.';
+}
+
+/** 주소를 보고 어디 것인지 스스로 골라 줍니다. */
+function peekLinkKind() {
+  const u = ($('#lkUrl') ? $('#lkUrl').value : '').toLowerCase();
+  const kd = $('#lkKind'); if (!kd || !u) return;
+  const hit = LINK_KINDS.find(k => k.host && u.indexOf(k.host) >= 0);
+  if (hit) kd.value = hit.key;
+  const t = $('#lkTitle'), st = $('#lkStage');
+  if (t && !t.value && st && st.value) t.value = stageName(st.value);
+}
+
+/* ---------------------------------------------------------------------------
+ *  8-2. 공정 받아오기 · 그리기
+ * -------------------------------------------------------------------------*/
+async function loadStages(loud) {
+  if (MK.busy) return;
+  MK.busy = true;
+  if (loud) $('#stageBoard').innerHTML = '<p class="dim">받아오는 중…</p>';
+  const res = await apiPost('xStages', { idToken: Auth.idToken, sid: S.sid }, 25000);
+  MK.busy = false;
+  if (!res.ok) {
+    if (res.error === 'UNKNOWN_ACTION') {
+      $('#stageBoard').innerHTML = '<div class="card"><h2>서버가 아직 준비되지 않았습니다</h2>' +
+        '<p class="muted">선생님께 <b>Stage.gs 를 넣고 setupExt 를 실행</b>해 달라고 말씀드리세요. ' +
+        '다른 탭은 그대로 쓸 수 있습니다.</p></div>';
+      return;
+    }
+    if (loud) toast(errText(res), 'bad', 4000);
+    return;
+  }
+  MK.stages = res.stages || [];
+  MK.links = res.links || [];
+  MK.reflects = res.reflects || [];
+  MK.praiseIn = res.praiseIn || [];
+  MK.praiseOut = res.praiseOut || [];
+  if (!MK.loaded) {
+    /* 처음 열 때, 아직 끝내지 않은 첫 공정을 펼쳐 둡니다 */
+    const first = CORE_STAGES.find(s => mkStage(s.key).status !== 'done');
+    if (first) MK.open[first.key] = true;
+  }
+  MK.loaded = true;
+  paintStages(true);
+  paintLinks();
+  paintReflect();
+  paintPraise();
+}
+
+function stageDone(k) { return mkStage(k).status === 'done'; }
+
+function paintStages(force) {
+  const box = $('#stageBoard'); if (!box) return;
+  if (!force && box.contains(document.activeElement)) { paintStageSummary(); return; }
+
+  box.innerHTML = STAGES.map(stageCardHtml).join('');
+  wireStages(box);
+  paintStageSummary();
+}
+
+function paintStageSummary() {
+  const coreDone = CORE_STAGES.filter(s => stageDone(s.key)).length;
+  const whyN = STAGES.filter(s => (mkStage(s.key).log.why || '').trim().length >= 10).length;
+  const dot = $('#dotMake');
+  if (dot) dot.textContent = String(coreDone);
+  const el = $('#stageSum'); if (!el) return;
+  el.innerHTML =
+    '<div class="ss-item"><div class="k">끝낸 공정</div><div class="v">' + coreDone + ' / ' + CORE_STAGES.length + '</div></div>' +
+    '<div class="ss-item"><div class="k">더 한 공정</div><div class="v">' +
+      STAGES.filter(s => !s.need && stageDone(s.key)).length + '</div></div>' +
+    '<div class="ss-item why"><div class="k">「왜 그렇게 했나」 쓴 칸</div><div class="v">' + whyN + ' / ' + STAGES.length + '</div></div>' +
+    '<div class="ss-item"><div class="k">낸 주소</div><div class="v">' + MK.links.length + '</div></div>';
+}
+
+function stageCardHtml(s) {
+  const st = mkStage(s.key);
+  const open = !!MK.open[s.key];
+  const mine = st.owner === S.sid;
+  const filled = XLOGN(st);
+  const mates = S.members || [];
+  const myLinks = MK.links.filter(l => l.stage === s.key);
+  const myFiles = ((S.work && S.work.files) || []).filter(f => {
+    const m = TAG_RE.exec(String(f.name || ''));
+    return m && String(s.no) === m[1];
+  });
+
+  let h = '<div class="stagecard ' + st.status + (s.need ? '' : ' extra') + '" data-st="' + s.key + '">';
+  h += '<button class="st-head" type="button" data-op="toggle" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+    '<span class="st-no">' + (s.no < 10 ? '0' : '') + s.no + '</span>' +
+    '<span class="st-t">' +
+      '<span class="st-name">' + s.icon + ' ' + esc(s.name) +
+        (s.need ? '' : ' <span class="st-opt">선택</span>') + '</span>' +
+      '<span class="st-tool">' + esc(s.tool) + '</span>' +
+    '</span>' +
+    '<span class="st-meta">' +
+      (st.ownerName ? '<span class="st-owner">' + esc(st.ownerName) + '</span>' : '') +
+      '<span class="st-badge ' + st.status + '">' + statusMark(st.status) + ' ' + statusName(st.status) + '</span>' +
+      '<span class="st-fill">일지 ' + filled + '/4</span>' +
+    '</span>' +
+    '<span class="st-caret">' + (open ? '▾' : '▸') + '</span>' +
+  '</button>';
+
+  if (open) {
+    h += '<div class="st-body">';
+    h += '<p class="st-what">' + esc(s.what) + '</p>';
+    h += '<p class="st-out"><b>낼 것</b> — ' + esc(s.out) + '</p>';
+
+    h += '<div class="row-wrap" style="margin:12px 0 4px">' +
+      '<label class="field" style="flex:0 0 150px"><span>지금 상태</span>' +
+        '<select class="t-select" data-f="status">' + STAGE_STATUS.map(x =>
+          '<option value="' + x.key + '"' + (x.key === st.status ? ' selected' : '') + '>' +
+          x.mark + ' ' + x.name + '</option>').join('') + '</select></label>' +
+      '<label class="field" style="flex:0 0 180px"><span>이 공정 담당</span>' +
+        '<select class="t-select" data-f="owner">' +
+          '<option value="">— 아직 —</option>' +
+          mates.map(m => '<option value="' + esc(m.sid) + '"' + (m.sid === st.owner ? ' selected' : '') + '>' +
+            esc(m.name) + (m.sid === S.sid ? ' (나)' : '') + '</option>').join('') +
+        '</select></label>' +
+      (mine ? '<span class="st-mine">내가 맡은 공정입니다</span>' : '') +
+    '</div>';
+
+    h += '<details class="st-ask"><summary>생각 열기 — 세 가지만 먼저</summary><ul class="think">' +
+      s.ask.map(q => '<li>' + esc(q) + '</li>').join('') + '</ul></details>';
+
+    h += '<div class="loggrid">';
+    s.log.forEach(f => {
+      const isWhy = f.key === 'why';
+      h += '<div class="logfield' + (isWhy ? ' why' : '') + '">' +
+        '<div class="lg-l">' + esc(f.label) + '</div>' +
+        '<textarea data-log="' + f.key + '" maxlength="' +
+          (typeof LOG_MAX_CHARS === 'number' ? LOG_MAX_CHARS : 1200) + '" ' +
+          'placeholder="' + esc(f.ph) + '">' + esc(st.log[f.key] || '') + '</textarea>' +
+        (f.help ? '<div class="lg-h">' + esc(f.help) + '</div>' : '') +
+      '</div>';
+    });
+    h += '</div>';
+
+    if (myFiles.length || myLinks.length) {
+      h += '<div class="st-att"><div class="lg-l">이 공정에 낸 것</div>';
+      myFiles.forEach(f => {
+        h += '<a class="tagpill" target="_blank" rel="noopener" href="' + esc(f.url) + '">' +
+          (f.kind === 'audio' ? '♪' : f.kind === 'image' ? '▣' : '▤') + ' ' + esc(bareFileName(f.name)) + '</a>';
+      });
+      myLinks.forEach(l => {
+        h += '<a class="tagpill" target="_blank" rel="noopener" href="' + esc(l.url) + '">🔗 ' +
+          esc(l.title) + ' <span class="dim">' + esc(linkKindName(l.kind)) + '</span></a>';
+      });
+      h += '</div>';
+    } else {
+      h += '<p class="dim st-att-none">아직 이 공정으로 낸 파일이나 주소가 없습니다. ' +
+        '[파일] 탭에서 <b>' + s.no + '. ' + esc(s.name) + '</b> 을 골라 올리면 여기에 붙습니다.</p>';
+    }
+
+    h += '<div class="btnrow" style="margin-top:12px">' +
+      '<button class="btn primary" data-op="save">이 공정 저장</button>' +
+      '<span class="dim" data-role="say" style="align-self:center; font-size:.85rem">' +
+        (st.at ? '마지막 저장 ' + esc(st.at) + (st.byName ? ' · ' + esc(st.byName) : '') : '') + '</span>' +
+    '</div>';
+    h += '</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
+function XLOGN(st) {
+  return ['prompt', 'ai', 'fix', 'why'].filter(k => String(st.log[k] || '').trim().length >= 2).length;
+}
+
+function wireStages(box) {
+  $$('.stagecard', box).forEach(card => {
+    const key = card.dataset.st;
+    const head = $('[data-op="toggle"]', card);
+    if (head) head.addEventListener('click', () => {
+      MK.open[key] = !MK.open[key];
+      paintStages(true);
+    });
+    $$('[data-f]', card).forEach(sel => sel.addEventListener('change', () => {
+      markStage(key, sel.dataset.f, sel.value);
+      saveStage(key, true);
+    }));
+    $$('[data-log]', card).forEach(t => t.addEventListener('input', () => {
+      markStage(key, 'log.' + t.dataset.log, t.value);
+      const say = $('[data-role="say"]', card);
+      if (say) say.textContent = '쓰는 중…';
+      clearTimeout(MK.timer);
+      MK.timer = setTimeout(() => saveStage(key, false), 2500);
+    }));
+    const btn = $('[data-op="save"]', card);
+    if (btn) btn.addEventListener('click', () => saveStage(key, true));
+  });
+}
+
+function markStage(key, field, value) {
+  const st = mkStage(key);
+  if (!MK.stages.find(s => s.stage === key)) MK.stages.push(st);
+  if (field.indexOf('log.') === 0) {
+    st.log = st.log || {};
+    st.log[field.slice(4)] = value;
+  } else {
+    st[field] = value;
+    if (field === 'owner') {
+      st.ownerName = (S.members.find(m => m.sid === value) || {}).name || '';
+    }
+  }
+  const d = MK.dirty[key] || (MK.dirty[key] = { log: {} });
+  if (field.indexOf('log.') === 0) d.log[field.slice(4)] = value;
+  else d[field] = value;
+}
+
+async function saveStage(key, loud) {
+  clearTimeout(MK.timer);
+  const d = MK.dirty[key];
+  const st = mkStage(key);
+  if (!d && !loud) return;
+  const card = $('.stagecard[data-st="' + key + '"]');
+  const say = card ? $('[data-role="say"]', card) : null;
+  if (say) say.textContent = '저장 중…';
+
+  delete MK.dirty[key];
+  const res = await apiPost('xStageSave', {
+    idToken: Auth.idToken, sid: S.sid, stage: key,
+    status: st.status, owner: st.owner || '',
+    log: {
+      prompt: st.log.prompt || '', ai: st.log.ai || '',
+      fix: st.log.fix || '', why: st.log.why || ''
+    }
+  }, 25000);
+
+  if (!res.ok) {
+    MK.dirty[key] = d || {};
+    if (say) say.textContent = '저장 실패';
+    toast(res.error === 'UNKNOWN_ACTION'
+      ? '서버에 Stage.gs 가 아직 없습니다. 선생님께 알려 주세요.'
+      : errText(res), 'bad', 4200);
+    return;
+  }
+  MK.stages = res.stages || MK.stages;
+  MK.links = res.links || MK.links;
+  if (say) say.textContent = '저장됨 · ' + new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  paintStageSummary();
+  if (loud) { paintStages(true); toast('저장했습니다', 'ok'); }
+}
+
+/* ---------------------------------------------------------------------------
+ *  8-3. 주소로 내기
+ * -------------------------------------------------------------------------*/
+async function addLink() {
+  const url = ($('#lkUrl').value || '').trim();
+  if (!/^https?:\/\/.{6,}/i.test(url)) { toast('http 로 시작하는 주소를 넣어 주세요', 'warn', 3500); return; }
+  const stage = $('#lkStage').value;
+  const kind = $('#lkKind').value;
+  const title = ($('#lkTitle').value || '').trim() || (stage ? stageName(stage) : '주소');
+
+  $('#btnAddLink').disabled = true;
+  const res = await apiPost('xLinkAdd', {
+    idToken: Auth.idToken, sid: S.sid, stage: stage, kind: kind, title: title, url: url
+  }, 20000);
+  $('#btnAddLink').disabled = false;
+
+  if (!res.ok) {
+    const msg = res.error === 'DUP_LINK' ? '이미 낸 주소입니다'
+              : res.error === 'BAD_URL' ? '주소가 올바르지 않습니다'
+              : res.error === 'TOO_MANY_LINKS' ? '주소를 너무 많이 냈습니다'
+              : errText(res);
+    toast(msg, 'bad', 4000);
+    return;
+  }
+  MK.links = res.links || MK.links;
+  $('#lkUrl').value = ''; $('#lkTitle').value = '';
+  paintLinks(); paintStages(true);
+  toast('주소를 냈습니다', 'ok');
+}
+
+function paintLinks() {
+  const box = $('#linkList'); if (!box) return;
+  if (!MK.links.length) { box.innerHTML = '<p class="dim">아직 낸 주소가 없습니다.</p>'; return; }
+  box.innerHTML = MK.links.map(l => {
+    const mine = l.sid === S.sid || S.job === 'stage';
+    const s = stageOf(l.stage);
+    return '<div class="linkitem" data-lid="' + esc(l.id) + '">' +
+      '<div class="grow">' +
+        '<div class="nm">🔗 ' + esc(l.title) + '</div>' +
+        '<div class="sub">' + (s ? esc(s.no + '. ' + s.name) + ' · ' : '') +
+          esc(linkKindName(l.kind)) + ' · ' + esc(l.name) + ' · ' + esc(l.at) + '</div>' +
+        '<div class="url">' + esc(l.url) + '</div>' +
+      '</div>' +
+      '<div class="acts no-print">' +
+        '<a class="btn sm ghost" href="' + esc(l.url) + '" target="_blank" rel="noopener">열기</a>' +
+        (mine ? '<button class="btn sm danger" data-op="dellink">지우기</button>' : '') +
+      '</div></div>';
+  }).join('');
+  $$('#linkList [data-op="dellink"]').forEach(b => b.addEventListener('click', async () => {
+    const id = b.closest('[data-lid]').dataset.lid;
+    if (!confirm('이 주소를 지울까요?')) return;
+    const res = await apiPost('xLinkDel', { idToken: Auth.idToken, sid: S.sid, id: id });
+    if (!res.ok) { toast(errText(res), 'bad'); return; }
+    MK.links = res.links || [];
+    paintLinks(); paintStages(true);
+    toast('지웠습니다', 'ok');
+  }));
+}
+
+/* ---------------------------------------------------------------------------
+ *  8-4. 성찰 세 줄
+ * -------------------------------------------------------------------------*/
+function paintReflect() {
+  const sel = $('#refLesson'); if (!sel) return;
+  const n = Number(sel.value || 1);
+  const have = MK.reflects.find(r => r.lesson === n);
+  REFLECT_FIELDS.forEach(f => {
+    const t = $('#refFields [data-ref="' + f.key + '"]');
+    if (t && document.activeElement !== t) t.value = have ? (have[f.key] || '') : '';
+  });
+  $('#refSaved').textContent = have ? ('저장돼 있습니다 · ' + have.at) : '아직 안 썼습니다';
+
+  const list = $('#refList');
+  if (!list) return;
+  list.innerHTML = MK.reflects.length
+    ? '<div class="lg-l">지금까지 쓴 것</div>' + MK.reflects.map(r =>
+        '<div class="refitem"><div class="rl">' + r.lesson + '차시</div><div class="rt">' +
+          (r.did ? '<b>한 것</b> ' + esc(r.did) + '<br>' : '') +
+          (r.stuck ? '<b>막힌 것</b> ' + esc(r.stuck) + '<br>' : '') +
+          (r.next ? '<b>다음</b> ' + esc(r.next) : '') +
+        '</div></div>').join('')
+    : '';
+}
+
+async function saveReflect() {
+  const n = Number($('#refLesson').value || 1);
+  const get = k => { const t = $('#refFields [data-ref="' + k + '"]'); return t ? t.value.trim() : ''; };
+  const body = { idToken: Auth.idToken, sid: S.sid, lesson: n,
+                 did: get('did'), stuck: get('stuck'), next: get('next') };
+  if (!body.did && !body.stuck && !body.next) { toast('세 칸 가운데 하나는 적어 주세요', 'warn', 3000); return; }
+  $('#btnSaveReflect').disabled = true;
+  const res = await apiPost('xReflectSave', body, 20000);
+  $('#btnSaveReflect').disabled = false;
+  if (!res.ok) { toast(errText(res), 'bad', 4000); return; }
+  MK.reflects = res.reflects || MK.reflects;
+  paintReflect();
+  toast(n + '차시 기록을 저장했습니다', 'ok');
+}
+
+/* ---------------------------------------------------------------------------
+ *  8-5. 고마운 한 줄
+ * -------------------------------------------------------------------------*/
+function paintPraise() {
+  const box = $('#praiseBox'); if (!box) return;
+  if (box.contains(document.activeElement)) return;
+  const mates = (S.members || []).filter(m => m.sid !== S.sid);
+  if (!mates.length) { box.innerHTML = '<p class="dim">모둠원 정보를 받아오는 중…</p>'; return; }
+
+  box.innerHTML = mates.map(m => {
+    const had = MK.praiseOut.find(p => p.toSid === m.sid);
+    const c = castOf(m.role);
+    return '<div class="praiserow" data-to="' + esc(m.sid) + '">' +
+      '<div class="pw"><span class="sw" style="background:' + (c ? c.color : '#666') + '"></span>' +
+        esc(m.name) + '<span class="dim"> · ' + esc(jobName(m.job)) + '</span></div>' +
+      '<input class="t-input" maxlength="300" placeholder="이 친구가 해낸 일을 한 줄로" value="' +
+        esc(had ? had.text : '') + '">' +
+      '<button class="btn sm primary" data-op="praise">' + (had ? '고치기' : '보내기') + '</button>' +
+    '</div>';
+  }).join('');
+
+  $$('#praiseBox [data-op="praise"]').forEach(b => b.addEventListener('click', async () => {
+    const row = b.closest('[data-to]');
+    const text = $('input', row).value.trim();
+    if (!text) { toast('한 줄 적어 주세요', 'warn', 2500); return; }
+    b.disabled = true;
+    const res = await apiPost('xPraiseSave', {
+      idToken: Auth.idToken, sid: S.sid, toSid: row.dataset.to, text: text
+    }, 20000);
+    b.disabled = false;
+    if (!res.ok) { toast(errText(res), 'bad'); return; }
+    MK.praiseOut = res.praiseOut || MK.praiseOut;
+    MK.praiseIn = res.praiseIn || MK.praiseIn;
+    paintPraise();
+    toast('보냈습니다', 'ok');
+  }));
+
+  const inbox = $('#praiseIn');
+  if (inbox) {
+    inbox.innerHTML = MK.praiseIn.length
+      ? '<div class="lg-l">모둠원이 나에게 써 준 것</div>' + MK.praiseIn.map(p =>
+          '<div class="praisegot"><b>' + esc(p.fromName) + '</b> ' + esc(p.text) + '</div>').join('')
+      : '<p class="dim" style="font-size:.86rem">아직 받은 것이 없습니다.</p>';
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ *  8-6. 갤러리 — 다른 모둠 보기 · 한 줄 감상 · 부문 투표
+ * -------------------------------------------------------------------------*/
+async function loadGallery(loud) {
+  if (loud) $('#galleryList').innerHTML = '<p class="dim">받아오는 중…</p>';
+  const res = await apiPost('xGallery', {
+    idToken: Auth.idToken, sid: S.sid,
+    resultMode: (typeof VOTE_RESULT_MODE === 'string' ? VOTE_RESULT_MODE : 'afterVote')
+  }, 30000);
+  if (!res.ok) {
+    if (loud) $('#galleryList').innerHTML = '<p class="err">' + esc(errText(res)) + '</p>';
+    return;
+  }
+  MK.gallery = res;
+  MK.galleryAt = Date.now();
+  $('#galleryAt').textContent = '받아온 시각 ' + new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  paintGallery();
+}
+
+function paintGallery() {
+  const r = MK.gallery; if (!r) return;
+  paintVote();
+
+  $('#galleryList').innerHTML = r.groups.map(g => {
+    const mine = g.group === r.myGroup;
+    const a = actOf(g.actNo) || {};
+    const reviews = (r.reviews && r.reviews[g.group]) || [];
+    const myText = (r.myReviews && r.myReviews[g.group]) || '';
+    return '<div class="gcard' + (mine ? ' mine' : '') + '" data-g="' + g.group + '">' +
+      '<div class="g-head">' +
+        '<div class="g-no">' + g.group + '모둠 · 제' + g.actNo + '막' + (mine ? ' · 우리' : '') + '</div>' +
+        '<div class="g-t">' + esc(g.actTitle || a.title || '(제목 없음)') + '</div>' +
+        '<div class="g-n">♪ ' + esc(g.numberTitle || '(넘버 제목 없음)') + '</div>' +
+        (g.logline ? '<div class="g-l">' + esc(g.logline) + '</div>' : '') +
+        '<div class="g-m">' + esc((g.members || []).join(' · ')) + '</div>' +
+      '</div>' +
+      (g.lyricPeek && g.lyricPeek.length
+        ? '<div class="g-lyr">' + g.lyricPeek.map(x => esc(x)).join('<br>') +
+          (g.lyricN > g.lyricPeek.length ? '<div class="dim">… 모두 ' + g.lyricN + '줄</div>' : '') + '</div>'
+        : '') +
+      '<div class="g-att">' +
+        (g.files || []).map(f => '<a class="tagpill" target="_blank" rel="noopener" href="' + esc(f.url) + '">' +
+          (f.kind === 'audio' ? '♪' : f.kind === 'image' ? '▣' : '▤') + ' ' + esc(bareFileName(f.name)) + '</a>').join('') +
+        (g.links || []).map(l => '<a class="tagpill" target="_blank" rel="noopener" href="' + esc(l.url) + '">🔗 ' +
+          esc(l.title) + '</a>').join('') +
+        (!(g.files || []).length && !(g.links || []).length ? '<span class="dim">아직 낸 것이 없습니다</span>' : '') +
+      '</div>' +
+      '<div class="g-done">끝낸 공정 ' + g.stagesDone + ' / ' + STAGES.length + '</div>' +
+      (mine
+        ? '<p class="dim g-own">우리 모둠입니다. 감상과 투표는 다른 모둠에만 합니다.</p>'
+        : '<div class="g-rev">' +
+            '<label class="field"><span>한 줄 감상 — 무엇이 좋았는지 <b>구체적으로</b></span>' +
+            '<input class="t-input" data-rev="' + g.group + '" maxlength="300" value="' + esc(myText) + '" ' +
+            'placeholder="예) 후렴에서 기타만 남는 부분이 노을 장면과 잘 맞았다"></label>' +
+            '<button class="btn sm primary" data-op="rev" data-g="' + g.group + '">' +
+              (myText ? '고치기' : '남기기') + '</button>' +
+          '</div>') +
+      (reviews.length
+        ? '<div class="g-got"><div class="lg-l">이 모둠이 받은 감상 ' + reviews.length + '줄</div>' +
+          reviews.map(x => '<div class="gg' + (x.mine ? ' mine' : '') + '">' + esc(x.text) +
+            (x.mine ? ' <span class="dim">(내가 쓴 것)</span>' : '') + '</div>').join('') + '</div>'
+        : '') +
+    '</div>';
+  }).join('');
+
+  $$('#galleryList [data-op="rev"]').forEach(b => b.addEventListener('click', async () => {
+    const g = Number(b.dataset.g);
+    const input = $('#galleryList [data-rev="' + g + '"]');
+    const text = input ? input.value.trim() : '';
+    if (!text) { toast('한 줄 적어 주세요', 'warn', 2500); return; }
+    b.disabled = true;
+    const res = await apiPost('xReviewSave', { idToken: Auth.idToken, sid: S.sid, group: g, text: text }, 20000);
+    b.disabled = false;
+    if (!res.ok) { toast(errText(res), 'bad'); return; }
+    toast(g + '모둠에 감상을 남겼습니다', 'ok');
+    loadGallery(false);
+  }));
+}
+
+function paintVote() {
+  const r = MK.gallery; if (!r) return;
+  const box = $('#voteBox'); if (!box) return;
+  const others = r.groups.filter(g => g.group !== r.myGroup);
+  const doneN = VOTE_CATS.filter(c => r.myVotes && r.myVotes[c.key]).length;
+
+  box.innerHTML = '<div class="card votecard">' +
+    '<div class="own-tag">' + doneN + ' / ' + VOTE_CATS.length + ' 부문 투표함 · 학급에서 ' + (r.voters || 0) + '명 참여</div>' +
+    '<h2>부문별 한 표</h2>' +
+    '<p class="muted" style="font-size:.9rem">네 부문에 각각 한 표씩. <b>고른 이유</b>를 함께 적어야 표가 값을 합니다. ' +
+    '언제든 바꿀 수 있습니다.</p>' +
+    VOTE_CATS.map(c => {
+      const mine = (r.myVotes && r.myVotes[c.key]) || null;
+      const tally = r.tally && r.tally[c.key];
+      return '<div class="voterow" data-cat="' + c.key + '">' +
+        '<div class="vc-h"><b>' + esc(c.name) + '</b> <span class="dim">' + esc(c.hint) + '</span></div>' +
+        '<div class="row-wrap">' +
+          '<label class="field" style="flex:0 0 150px"><span>뽑을 모둠</span>' +
+            '<select class="t-select" data-v="g">' +
+              '<option value="">— 고르기 —</option>' +
+              others.map(g => '<option value="' + g.group + '"' +
+                (mine && mine.group === g.group ? ' selected' : '') + '>' +
+                g.group + '모둠 · ' + esc(g.numberTitle || g.actTitle || ('제' + g.actNo + '막')) +
+              '</option>').join('') +
+            '</select></label>' +
+          '<label class="field" style="flex:2 1 260px"><span>고른 이유</span>' +
+            '<input class="t-input" data-v="why" maxlength="200" value="' + esc(mine ? mine.why : '') + '" ' +
+            'placeholder="무엇이 어떻게 좋았는지 한 줄"></label>' +
+          '<button class="btn sm primary" data-op="vote" style="align-self:flex-end; margin-bottom:2px">' +
+            (mine ? '바꾸기' : '투표') + '</button>' +
+        '</div>' +
+        (tally
+          ? '<div class="vtally">' + others.map(g =>
+              '<span class="vt"><b>' + g.group + '모둠</b> ' + (tally[g.group] || 0) + '표</span>').join('') + '</div>'
+          : '<div class="dim vtally-off">투표하면 이 부문의 집계가 보입니다</div>') +
+      '</div>';
+    }).join('') + '</div>';
+
+  $$('#voteBox [data-op="vote"]').forEach(b => b.addEventListener('click', async () => {
+    const row = b.closest('[data-cat]');
+    const cat = row.dataset.cat;
+    const g = Number($('[data-v="g"]', row).value || 0);
+    const why = $('[data-v="why"]', row).value.trim();
+    if (!g) { toast('모둠을 고르세요', 'warn', 2500); return; }
+    if (!why) { toast('고른 이유를 한 줄 적어 주세요', 'warn', 3000); return; }
+    b.disabled = true;
+    const res = await apiPost('xVoteSave', { idToken: Auth.idToken, sid: S.sid, cat: cat, group: g, why: why }, 20000);
+    b.disabled = false;
+    if (!res.ok) { toast(errText(res), 'bad'); return; }
+    toast(voteCatName(cat) + ' — ' + g + '모둠에 투표했습니다', 'ok');
+    loadGallery(false);
+  }));
 }

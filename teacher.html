@@ -11,7 +11,7 @@
 
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="style.css?v=1.6.0">
+<link rel="stylesheet" href="style.css?v=2.0.0">
 </head>
 
 <body class="teacher">
@@ -46,6 +46,9 @@
       <nav class="tabs" role="tablist">
         <button class="tab" role="tab" data-tab="ctrl"   aria-selected="true">학급 · 공지</button>
         <button class="tab" role="tab" data-tab="status" aria-selected="false">모둠 현황</button>
+        <button class="tab" role="tab" data-tab="stages" aria-selected="false">제작 현황</button>
+        <button class="tab" role="tab" data-tab="record" aria-selected="false">세특 자료</button>
+        <button class="tab" role="tab" data-tab="gal"    aria-selected="false">시사회</button>
         <button class="tab" role="tab" data-tab="script" aria-selected="false">합본 대본</button>
         <button class="tab" role="tab" data-tab="roster" aria-selected="false">명렬표</button>
         <button class="tab" role="tab" data-tab="log"    aria-selected="false">로그</button>
@@ -118,6 +121,68 @@
         <h2>아직 모둠에 들어가지 않은 학생</h2>
         <div id="unassigned"></div>
       </div>
+    </section>
+
+    <!-- ---------- 제작 현황 (v2.0) ---------- -->
+    <section class="panel" id="panel-stages" role="tabpanel" hidden>
+      <div class="notice">
+        일곱 공정이 어디까지 왔는지, 그리고 <b>「왜 그렇게 했나」 칸을 쓴 모둠이 어디인지</b> 보여 줍니다.
+        칸을 누르면 그 모둠 그 공정의 제작 일지가 펼쳐집니다.
+        제작 공정은 <b>제출을 막지 않습니다</b> — 진행만 보이게 두었습니다.
+      </div>
+      <div class="row-wrap no-print" style="margin-bottom:10px">
+        <label class="field"><span>학급</span>
+          <select class="t-select" id="selClass3"></select></label>
+        <button class="btn" id="btnLoadStages" style="align-self:flex-end">불러오기</button>
+        <span class="dim" id="stagesAt" style="align-self:flex-end; padding-bottom:10px"></span>
+      </div>
+      <div class="kpis" id="stageKpis"></div>
+      <div class="tb-scroll"><div id="stageGrid"></div></div>
+      <div id="stageDetail"></div>
+    </section>
+
+    <!-- ---------- 세특 자료 (v2.0) ---------- -->
+    <section class="panel" id="panel-record" role="tabpanel" hidden>
+      <div class="notice no-print">
+        <b>학생 한 명이 남긴 것을 한 장으로 모읍니다.</b> 세특을 대신 써 주는 화면이 아니라,
+        <b>쓸 근거를 모아 주는</b> 화면입니다. 이름을 누르면 아래에 펼쳐지고, [인쇄 / PDF]로 그대로 뽑을 수 있습니다.
+      </div>
+      <div class="row-wrap no-print" style="margin-bottom:10px">
+        <label class="field"><span>학급</span>
+          <select class="t-select" id="selClass4"></select></label>
+        <button class="btn" id="btnLoadPeople" style="align-self:flex-end">명단 불러오기</button>
+        <input class="t-input" id="peopleSearch" style="flex:1 1 200px" placeholder="학번·이름으로 찾기">
+        <button class="btn ghost" id="btnPrintRecord" style="align-self:flex-end">인쇄 / PDF</button>
+        <button class="btn ghost" id="btnCopyRecord" style="align-self:flex-end">글자로 복사</button>
+      </div>
+      <div class="tb-scroll no-print">
+        <table class="tb">
+          <thead><tr>
+            <th>학번</th><th>이름</th><th>모둠</th><th>제작 역할</th><th>배역</th>
+            <th class="num">쓴 줄</th><th class="num">파일</th><th class="num">주소</th>
+            <th class="num">맡은 공정</th><th class="num">「왜」 칸</th>
+            <th class="num">성찰</th><th class="num">받은 인정</th><th class="num">감상</th>
+          </tr></thead>
+          <tbody id="peopleBody"></tbody>
+        </table>
+      </div>
+      <div id="recordOut"></div>
+    </section>
+
+    <!-- ---------- 시사회 (v2.0) ---------- -->
+    <section class="panel" id="panel-gal" role="tabpanel" hidden>
+      <div class="notice">
+        학급 시사회의 결과입니다. 부문별 득표와, 학생들이 서로에게 남긴 한 줄 감상을 함께 봅니다.
+        <b>감상은 학생 화면에서는 이름 없이</b> 보이지만 여기서는 누가 썼는지 보입니다.
+      </div>
+      <div class="row-wrap no-print" style="margin-bottom:10px">
+        <label class="field"><span>학급</span>
+          <select class="t-select" id="selClass5"></select></label>
+        <button class="btn" id="btnLoadGal" style="align-self:flex-end">불러오기</button>
+        <button class="btn ghost" id="btnPrintGal" style="align-self:flex-end">인쇄 / PDF</button>
+      </div>
+      <div class="kpis" id="galKpis"></div>
+      <div id="galOut"></div>
     </section>
 
     <!-- ---------- 합본 대본 ---------- -->
@@ -199,10 +264,10 @@
   </div>
 </div>
 
-<script src="config.js?v=1.6.0"></script>
-<script src="story.js?v=1.6.0"></script>
-<script src="common.js?v=1.6.0"></script>
-<script src="teacher.js?v=1.6.0"></script>
+<script src="config.js?v=2.0.0"></script>
+<script src="story.js?v=2.0.0"></script>
+<script src="common.js?v=2.0.0"></script>
+<script src="teacher.js?v=2.0.0"></script>
 <script src="https://accounts.google.com/gsi/client?onload=onGsiLoad" async defer></script>
 </body>
 </html>
