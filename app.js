@@ -10,7 +10,7 @@
  *  서버가 하나로 합쳐 주기 때문에 서로의 글이 지워지지 않습니다.
  * ==========================================================================*/
 
-const APP_VERSION = 'student v2.0.0 (2026-09-13) 제작공정';
+const APP_VERSION = 'student v2.0.1 (2026-09-13) 제작공정';
 
 /* ---------------------------------------------------------------------------
  *  0. 지금 상태
@@ -1426,7 +1426,7 @@ function stageCardHtml(s) {
     '<span class="st-t">' +
       '<span class="st-name">' + s.icon + ' ' + esc(s.name) +
         (s.need ? '' : ' <span class="st-opt">선택</span>') + '</span>' +
-      '<span class="st-tool">' + esc(s.tool) + '</span>' +
+      (s.tool ? '<span class="st-tool">' + esc(s.tool) + '</span>' : '') +
     '</span>' +
     '<span class="st-meta">' +
       (st.ownerName ? '<span class="st-owner">' + esc(st.ownerName) + '</span>' : '') +
