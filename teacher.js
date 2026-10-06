@@ -6,10 +6,10 @@
 /* ★ 2026-09-08 — 수업 시간·제출 시간을 통제하지 않습니다.
       입장과 제출은 늘 열려 있고, 낸 뒤에도 학생이 고쳐서 다시 낼 수 있습니다. */
 
-const TEACHER_VERSION = 'teacher v2.0.0 (2026-09-13) 제작공정';
+const TEACHER_VERSION = 'teacher v2.0.1 (2026-10-06) 전학생';
 
 const T = {
-  cfg: [], cls: '', status: null, roster: [], pending: [], edit: null,
+  cfg: [], cls: '', status: null, roster: [], pending: [], edit: null, addBusy: false,
   idleTimer: null, tickTimer: null,
   /* ★ v1.6 — 모둠 현황 자동 갱신과 자리 겹침 검사에 쓰는 것들 */
   seatGroups: [], statusAt: 0, liveTimer: null, agoTimer: null, statusBusy: false
@@ -75,6 +75,16 @@ function bind() {
   $('#btnUpsertRoster').addEventListener('click', upsertRoster);
   $('#btnLoadRoster').addEventListener('click', loadRoster);
   $('#rosterSearch').addEventListener('input', paintRoster);
+  /* ★ 2026-10-06 — 전학생 한 명 넣기, 붙여 넣으면 바로 확인 */
+  $('#pasteBox').addEventListener('input', previewRoster);
+  $('#btnAddOne').addEventListener('click', addOneStudent);
+  ['#oneSid', '#oneName', '#onePw'].forEach(sel => {
+    $(sel).addEventListener('input', paintOneHint);
+    $(sel).addEventListener('keydown', e => {
+      if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+      e.preventDefault(); addOneStudent();
+    });
+  });
   $('#btnLoadLog').addEventListener('click', loadLog);
   $('#btnCloseEdit').addEventListener('click', () => { $('#editModal').hidden = true; });
   $('#btnSaveEdit').addEventListener('click', saveEdit);
@@ -473,6 +483,7 @@ async function saveEdit() {
   $('#editModal').hidden = true;
   toast('바꿨습니다', 'ok');
   loadStatus();
+  if (!$('#panel-roster').hidden) loadRoster();
 }
 
 async function removeEdit() {
@@ -482,6 +493,7 @@ async function removeEdit() {
   if (!res.ok) { toast(errText(res), 'bad'); return; }
   $('#editModal').hidden = true;
   loadStatus();
+  if (!$('#panel-roster').hidden) loadRoster();
 }
 
 /* ---- ★ v1.6 자리 일괄 정리 --------------------------------------------*/
@@ -655,6 +667,25 @@ function exportScript() {
  *  5. 명렬표
  * =========================================================================*/
 
+/** 전각 숫자(３３０１)를 보통 숫자로 바꾸고 빈칸을 뺍니다. */
+function normSid(v) {
+  return String(v == null ? '' : v)
+    .replace(/[\uFF10-\uFF19]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/\s+/g, '');
+}
+
+/** ★ 2026-10-06 — 한 줄을 학번 / 이름 / 비밀번호로 나눕니다.
+ *  예전에는 탭·쉼표·두 칸 띄어쓰기만 알아들어서, 손으로 친 '3331 홍길동'(한 칸 띄움)이 통째로 버려졌습니다.
+ *  · 탭이나 쉼표가 있으면 그것으로 (엑셀 붙여 넣기)
+ *  · 두 칸 이상 띄운 곳이 있으면 그것으로 (이름에 빈칸이 있는 학생)
+ *  · 그 밖에는 한 칸 띄어쓰기로 */
+function splitRosterLine(t) {
+  const parts = /[\t,，]/.test(t) ? t.split(/[\t,，]+/)
+              : /\s{2,}/.test(t) ? t.split(/\s{2,}/)
+              : t.split(/\s+/);
+  return parts.map(x => x.trim()).filter(Boolean);
+}
+
 function previewRoster() {
   const raw = $('#pasteBox').value;
   const rows = [];
@@ -663,8 +694,8 @@ function previewRoster() {
   raw.split(/\r?\n/).forEach(line => {
     const t = line.trim();
     if (!t) return;
-    const p = t.split(/[\t,]+|\s{2,}/).map(x => x.trim()).filter(Boolean);
-    const sid = p[0], name = p[1], pw = p[2] || '';
+    const p = splitRosterLine(t);
+    const sid = normSid(p[0]), name = p[1], pw = p[2] || '';
     if (!/^\d{4}$/.test(sid) || !name) { bad.push(t); return; }
     if (seen[sid]) { bad.push(t + '  (학번 겹침)'); return; }
     seen[sid] = true;
@@ -672,6 +703,7 @@ function previewRoster() {
   });
   T.pending = rows;
   $('#btnUpsertRoster').disabled = !rows.length;
+  if (!raw.trim()) { $('#pastePreview').innerHTML = ''; return; }
   $('#pastePreview').innerHTML =
     '<p class="' + (rows.length ? 'muted' : 'err') + '">쓸 수 있는 줄 <b>' + rows.length + '</b>개' +
     (bad.length ? ' · 건너뛴 줄 <b class="err">' + bad.length + '</b>개' : '') + '</p>' +
@@ -680,6 +712,7 @@ function previewRoster() {
 }
 
 async function upsertRoster() {
+  previewRoster();
   if (!T.pending.length) return;
   if (!confirm(T.pending.length + '명을 명렬표에 넣을까요?')) return;
   $('#btnUpsertRoster').disabled = true;
@@ -689,6 +722,54 @@ async function upsertRoster() {
   toast('새로 ' + res.added + '명, 고친 것 ' + res.updated + '명 · 모두 ' + res.total + '명', 'ok', 4200);
   $('#pasteBox').value = ''; $('#pastePreview').innerHTML = ''; T.pending = [];
   loadRoster();
+}
+
+/* ---- ★ 2026-10-06 전학생 한 명 넣기 ------------------------------------*/
+function paintOneHint() {
+  const sid = normSid($('#oneSid').value);
+  const name = $('#oneName').value.trim();
+  const box = $('#oneHint');
+  if (!sid) { box.innerHTML = ''; return; }
+  if (!/^\d{4}$/.test(sid)) { box.innerHTML = '<span class="err">학번은 숫자 네 자리입니다 (예: 3331)</span>'; return; }
+  const cls = classOf(sid);
+  if (CLASS_LIST.indexOf(cls) < 0) {
+    box.innerHTML = '<span class="err">' + esc(cls) + '반은 학급 목록(config.js)에 없습니다. 학번을 다시 확인해 주세요.</span>';
+    return;
+  }
+  const old = T.roster.find(r => r.sid === sid);
+  box.innerHTML = '→ <b>' + esc(cls) + '반 ' + Number(sid.slice(2)) + '번</b>' + (name ? ' ' + esc(name) : '') + ' 학생으로 들어갑니다.' +
+    (old ? ' <span class="err">이미 ' + esc(old.name) + ' 학생이 쓰는 학번입니다. 넣으면 이름이 바뀝니다.</span>' : '');
+}
+
+async function addOneStudent() {
+  if (T.addBusy) return;
+  const sid = normSid($('#oneSid').value);
+  const name = $('#oneName').value.trim();
+  const pw = $('#onePw').value.trim();
+  if (!/^\d{4}$/.test(sid)) { toast('학번은 숫자 네 자리로 넣어 주세요 (예: 3331)', 'warn', 3500); $('#oneSid').focus(); return; }
+  if (!name) { toast('이름을 넣어 주세요', 'warn', 3000); $('#oneName').focus(); return; }
+  const cls = classOf(sid);
+  if (CLASS_LIST.indexOf(cls) < 0) { toast(cls + '반은 학급 목록에 없습니다', 'bad', 4000); $('#oneSid').focus(); return; }
+
+  const old = T.roster.find(r => r.sid === sid);
+  const ask = old
+    ? sid + ' 학번에는 이미 ' + old.name + ' 학생이 있습니다.\n' + name + '(으)로 바꿀까요?' +
+      (old.bound ? '\n\n※ 이 학번은 ' + old.bound + ' 계정에 연결되어 있습니다.\n다른 학생이라면 넣은 뒤 표에서 [연결 해제]를 눌러 주세요.' : '')
+    : cls + '반 ' + name + ' (' + sid + ') 학생을 명렬표에 넣을까요?';
+  if (!confirm(ask)) return;
+
+  T.addBusy = true; $('#btnAddOne').disabled = true;
+  const res = await apiPost('teacherRosterUpsert', { idToken: Auth.idToken, rows: [{ sid: sid, name: name, pw: pw }] }, 60000);
+  T.addBusy = false; $('#btnAddOne').disabled = false;
+  if (!res.ok) { toast(errText(res), 'bad'); return; }
+
+  toast(cls + '반 ' + name + ' 학생을 넣었습니다', 'ok', 4200);
+  $('#oneSid').value = ''; $('#oneName').value = ''; $('#onePw').value = '';
+  /* 표를 새 학생 한 줄로 좁혀서 바로 [자리]를 누를 수 있게 합니다 */
+  $('#rosterSearch').value = sid;
+  await loadRoster();
+  $('#oneHint').innerHTML = '넣었습니다. 아래 표에서 <b>[자리]</b>를 눌러 모둠에 넣을 수 있습니다. (찾기 칸을 비우면 전체가 다시 보입니다)';
+  $('#oneSid').focus();
 }
 
 async function loadRoster() {
@@ -728,18 +809,6 @@ function paintRoster() {
     if (!res.ok) { toast(errText(res), 'bad'); return; }
     toast('풀었습니다', 'ok'); loadRoster();
   }));
-}
-
-function openEditFromRoster(r) {
-  $('#editTitle').textContent = r.name + ' (' + r.sid + ') 자리 고치기';
-  $('#edGroup').innerHTML = '<option value="0">— 없음 —</option>' +
-    ACTS.map(a => '<option value="' + a.no + '"' + (Number(r.group) === a.no ? ' selected' : '') + '>' +
-      a.no + '모둠 · 제' + a.no + '막 ' + esc(a.title) + '</option>').join('');
-  $('#edJob').innerHTML = JOBS.map(j => '<option value="' + j.key + '"' +
-    (r.job === j.key ? ' selected' : '') + '>' + esc(j.name) + '</option>').join('');
-  $('#edRole').innerHTML = CAST.map(c => '<option value="' + c.key + '"' +
-    (r.role === c.key ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('');
-  $('#editModal').hidden = false;
 }
 
 /* ===========================================================================
